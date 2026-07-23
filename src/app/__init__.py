@@ -1,0 +1,1 @@
+"""Wallpace application layer."""

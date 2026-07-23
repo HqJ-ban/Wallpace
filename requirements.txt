@@ -1,0 +1,5 @@
+# PySide6 桌面 UI 框架（核心依赖）
+PySide6>=6.6.0
+
+# 文件变更监听（可选，PySide6 自带 QFileSystemWatcher 也可用）
+watchdog>=3.0.0
