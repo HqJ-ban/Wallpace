@@ -1,0 +1,18 @@
+{
+  "image_directories": [],
+  "extensions": [
+    "jpg",
+    "jpeg",
+    "png",
+    "webp"
+  ],
+  "switch_mode": "daily_random",
+  "daily_time": "08:00",
+  "interval_minutes": null,
+  "skip_list": [],
+  "favorites": [],
+  "enable_notifications": true,
+  "auto_start": true,
+  "minimize_to_tray": true,
+  "my_test_key": 12345
+}
