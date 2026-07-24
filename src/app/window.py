@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
 
 if TYPE_CHECKING:
     from src.core.image_library import ImageLibrary
+    from src.core.scheduler import Scheduler
     from src.core.settings import Settings
     from src.core.wallpaper_manager import WallpaperManager
 
@@ -54,16 +55,21 @@ class MainWindow(QMainWindow):
     SWITCH_REQUESTED = 1
     FAVORITE_REQUESTED = 2
 
-    def __init__(self, settings: "Settings",
-                 library: "ImageLibrary",
-                 wallpaper_manager: "WallpaperManager",
-                 *args, **kwargs) -> None:
+    def __init__(
+        self,
+        settings: "Settings",
+        library: "ImageLibrary",
+        wallpaper_manager: "WallpaperManager",
+        scheduler: Optional["Scheduler"] = None,
+        *args,
+        **kwargs,
+    ) -> None:
         super().__init__(*args, **kwargs)
         self._settings = settings
         self._library = library
         self._wallpaper_manager = wallpaper_manager
+        self._scheduler = scheduler
 
-        self._is_paused = False
         self._current_image_index = 0
 
         self._setup_window()
@@ -160,7 +166,6 @@ class MainWindow(QMainWindow):
         # === 托盘 ===
         self._tray = TrayIcon(self)
         self._tray.show()
-
 
         # === 初始化数据 ===
         self._refresh_gallery()
@@ -327,6 +332,18 @@ class MainWindow(QMainWindow):
         )
         switch_layout.addWidget(mode_info)
 
+        # 如果是 interval_minutes 模式，显示间隔时间
+        if mode_val == "interval_minutes":
+            interval = self._settings.get("interval_minutes")
+            if interval:
+                interval_info = QLabel(f"间隔: {interval} 分钟")
+                interval_info.setStyleSheet(
+                    f"background-color: {COLOR_GRAY_100}; "
+                    "border-radius: 6px; "
+                    "padding: 8px; font-size: 12px;"
+                )
+                switch_layout.addWidget(interval_info)
+
         layout.addWidget(group_switch)
         layout.addStretch()
 
@@ -336,6 +353,10 @@ class MainWindow(QMainWindow):
 
     def _handle_switch(self) -> None:
         """处理用户点击'换一张'。"""
+        if self._scheduler is not None:
+            self._scheduler.trigger_now()
+            return
+
         image_path = self._library.get_random()
         if image_path is None:
             logger.warning("无法获取随机图片")
@@ -364,17 +385,29 @@ class MainWindow(QMainWindow):
         self._library.favorite(self._preview_card._current_path)
         logger.info("已收藏: %s", self._preview_card._current_path)
 
+    @Slot(str)
+    def on_wallpaper_switched(self, path: str) -> None:
+        """调度器触发切换后的回调，更新 UI。"""
+        try:
+            available = self._library.list_available()
+            index = available.index(path) if path in available else 0
+            self._update_preview(path, index)
+        except Exception:
+            logger.exception("更新 UI 失败")
+
     def request_switch(self) -> None:
         """供托盘菜单调用的公共切换入口。"""
         self._handle_switch()
 
     def pause_scheduler(self) -> None:
-        self._is_paused = True
+        if self._scheduler is not None:
+            self._scheduler.pause()
         self._tray.update_pause_status(True)
         logger.info("调度已暂停")
 
     def resume_scheduler(self) -> None:
-        self._is_paused = False
+        if self._scheduler is not None:
+            self._scheduler.resume()
         self._tray.update_pause_status(False)
         logger.info("调度已恢复")
 
@@ -427,3 +460,5 @@ class MainWindow(QMainWindow):
         if hasattr(self, "_tray") and self._tray is not None:
             self._tray.setVisible(False)
             self._tray.deleteLater()
+        if hasattr(self, "_scheduler") and self._scheduler is not None:
+            self._scheduler.stop()
