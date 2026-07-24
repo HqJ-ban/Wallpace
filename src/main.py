@@ -58,9 +58,9 @@ def main() -> None:
     app.setOrganizationName("wallpace")
 
     # Phase 1: 核心模块初始化
-    from core.settings import Settings
-    from core.image_library import ImageLibrary
-    from core.wallpaper_manager import WallpaperManager
+    from src.core.settings import Settings
+    from src.core.image_library import ImageLibrary
+    from src.core.wallpaper_manager import WallpaperManager
 
     settings = Settings()
     libraries = ImageLibrary(
@@ -86,9 +86,13 @@ def main() -> None:
     )
     logger.info("当前壁纸: %s", wm.get_current_wallpaper())
 
-    # TODO Phase 2: 创建 MainWindow
-    # from app.window import MainWindow
-    # window = MainWindow(settings=settings, library=libraries,
+    # Phase 2: 创建 MainWindow
+    from src.app.window import MainWindow
+    window = MainWindow(settings=settings, library=libraries,
+                        wallpaper_manager=wm)
+    if "--hidden" not in sys.argv:
+        window.show()
+
     #                     wallpaper_manager=wm)
     # if "--hidden" not in sys.argv:
     #     window.show()

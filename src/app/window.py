@@ -160,7 +160,7 @@ class MainWindow(QMainWindow):
         # === 托盘 ===
         self._tray = TrayIcon(self)
         self._tray.show()
-        self.aboutToQuit.connect(self._on_quit)
+
 
         # === 初始化数据 ===
         self._refresh_gallery()
@@ -421,6 +421,9 @@ class MainWindow(QMainWindow):
         now = datetime.now()
         return now.strftime("%Y年%m月%d日")
 
-    def _on_quit(self) -> None:
-        self._tray.setVisible(False)
-        self._tray.deleteLater()
+    def closeEvent(self, event) -> None:
+        """托盘图标清理"""
+        super().closeEvent(event)
+        if hasattr(self, "_tray") and self._tray is not None:
+            self._tray.setVisible(False)
+            self._tray.deleteLater()
