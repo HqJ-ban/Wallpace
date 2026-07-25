@@ -1,18 +1,21 @@
 {
-  "image_directories": [],
+  "image_directories": [
+    "D:\\my_project\\source picture"
+  ],
   "extensions": [
-    "jpg",
-    "jpeg",
-    "png",
-    "webp"
+    ".jpg",
+    ".jpeg",
+    ".png",
+    ".bmp",
+    ".gif",
+    ".webp"
   ],
   "switch_mode": "daily_random",
   "daily_time": "08:00",
   "interval_minutes": null,
-  "skip_list": [],
+  "auto_start": false,
   "favorites": [],
+  "skip_list": [],
   "enable_notifications": true,
-  "auto_start": true,
-  "minimize_to_tray": true,
-  "my_test_key": 12345
+  "minimize_to_tray": true
 }

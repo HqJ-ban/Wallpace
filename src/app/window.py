@@ -90,10 +90,6 @@ class MainWindow(QMainWindow):
         # 中心容器
         central = QWidget()
         self.setCentralWidget(central)
-        center_layout = QHBoxLayout(central)
-        center_layout.setContentsMargins(0, 0, 0, 0)
-        center_layout.setSpacing(0)
-
         # === 顶部渐变栏 ===
         top_bar = QFrame()
         top_bar.setObjectName("top_bar")

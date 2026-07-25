@@ -10,7 +10,7 @@
 """
 
 import logging
-from datetime import datetime, time as dt_time
+from datetime import datetime, time as dt_time, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Optional
 
@@ -40,13 +40,6 @@ class Scheduler:
         daily_time: str = "08:00",
         interval_minutes: Optional[int] = None,
     ) -> None:
-        """初始化调度器。
-
-        Args:
-            mode: 切换模式，必须为 VALID_MODES 之一。
-            daily_time: 每日切换时间，格式 "HH:MM"。
-            interval_minutes: 间隔切换的分钟数（仅 interval_minutes 模式需要）。
-        """
         if mode not in VALID_MODES:
             raise ValueError(
                 f"无效模式 '{mode}'，应为 {', '.join(VALID_MODES)}"
@@ -78,45 +71,30 @@ class Scheduler:
         library: "ImageLibrary",
         wallpaper_manager: "WallpaperManager",
     ) -> None:
-        """注入依赖对象（在 start() 之前调用）。
-
-        Args:
-            library: 图片库，用于获取壁纸路径。
-            wallpaper_manager: 壁纸管理器，用于设置壁纸。
-        """
         self._library = library
         self._wallpaper_manager = wallpaper_manager
 
     @property
     def mode(self) -> str:
-        """当前切换模式。"""
         return self._mode
 
     @mode.setter
     def mode(self, value: str) -> None:
-        """切换模式（停止旧定时器，如需要则启动新定时器）。"""
         old_mode = self._mode
         if value not in VALID_MODES:
             raise ValueError(f"无效模式 '{value}'")
         self._mode = value
         logger.info("模式变更: %s -> %s", old_mode, value)
 
-        # 如果从定时模式切到手动或反向，需要重启定时器
         if (old_mode != "manual") != (value != "manual"):
             if self._is_running and not self._is_paused:
                 self.stop()
                 self.start(self._on_switch)
             elif self._is_running:
-                # paused 状态：先停止再重新开始
                 self.stop()
                 self.resume()
 
     def start(self, on_switch: Optional[Callable[[str], None]] = None) -> None:
-        """启动调度器。
-
-        Args:
-            on_switch: 切换完成后的回调函数（可选），参数为新壁纸路径。
-        """
         if self._is_running and not self._is_paused:
             logger.warning("调度器已在运行，忽略 start()")
             return
@@ -129,7 +107,6 @@ class Scheduler:
         self._is_running = True
         self._is_paused = False
 
-        # 需要在 Qt event loop 中运行，这里用 QTimer 延迟初始化
         if self._mode == self.SWITCH_MODE_DAILY:
             self._start_daily_timer()
         elif self._mode == self.SWITCH_MODE_INTERVAL:
@@ -138,7 +115,6 @@ class Scheduler:
             logger.info("手动模式: 不启动自动定时器")
 
     def trigger_now(self) -> None:
-        """立即触发一次壁纸切换（无论什么模式）。"""
         if self._library is None or self._wallpaper_manager is None:
             logger.error("调度器未注入 library/wallpaper_manager")
             return
@@ -157,7 +133,6 @@ class Scheduler:
             logger.error("手动切换失败")
 
     def pause(self) -> None:
-        """暂停定时任务。"""
         if not self._is_running:
             logger.warning("调度器未运行，无法暂停")
             return
@@ -166,7 +141,6 @@ class Scheduler:
         logger.info("调度器已暂停")
 
     def resume(self) -> None:
-        """恢复已暂停的任务。"""
         if not self._is_running:
             logger.warning("调度器未运行")
             return
@@ -178,7 +152,6 @@ class Scheduler:
         logger.info("调度器已恢复")
 
     def stop(self) -> None:
-        """停止并销毁所有定时器。"""
         self._is_running = False
         self._is_paused = False
         self._pause_timers()
@@ -186,18 +159,15 @@ class Scheduler:
 
     @property
     def is_active(self) -> bool:
-        """是否正在运行。"""
         return self._is_running and not self._is_paused
 
     @property
     def is_paused(self) -> bool:
-        """是否被暂停。"""
         return self._is_running and self._is_paused
 
     # ==================== 私有方法 ====================
 
     def _parse_time(self, time_str: str) -> "dt_time":
-        """解析 HH:MM 时间字符串。"""
         try:
             h, m = map(int, time_str.split(":"))
             return dt_time(h, m)
@@ -205,16 +175,14 @@ class Scheduler:
             raise ValueError(f"无效时间格式 '{time_str}'，应为 HH:MM")
 
     def _start_daily_timer(self) -> None:
-        """启动每日定时任务：计算距下次切换时间的毫秒数。"""
         now = datetime.now()
         target_today = now.replace(
             hour=self._daily_time.hour,
             minute=self._daily_time.minute,
             second=0, microsecond=0,
         )
-        # 如果今天已过目标时间，设定为明天同一时间
         if target_today <= now:
-            target_today += datetime.timedelta(days=1)
+            target_today += timedelta(days=1)
 
         delay_ms = int((target_today - now).total_seconds() * 1000)
         logger.info(
@@ -222,10 +190,9 @@ class Scheduler:
             delay_ms / 1000, delay_ms,
         )
 
-        self._schedule_once(delay_ms, self._do_daily_switch)
+        self._schedule_once(delay_ms, self._do_daily_timer)
 
     def _start_interval_timer(self) -> None:
-        """启动间隔定时任务。"""
         if self._interval_minutes is None or self._interval_minutes <= 0:
             raise ValueError("interval_minutes 必须 > 0")
         delay_ms = self._interval_minutes * 60 * 1000
@@ -236,7 +203,6 @@ class Scheduler:
         self._start_repeating_timer(delay_ms, self._do_interval_switch)
 
     def _schedule_once(self, delay_ms: int, callback: Callable) -> None:
-        """调度一次性定时器（在 QApplication 可用时绑定 QTimer）。"""
         from PySide6.QtCore import QTimer
         timer = QTimer()
         timer.setSingleShot(True)
@@ -245,7 +211,6 @@ class Scheduler:
         self._timer = timer
 
     def _start_repeating_timer(self, delay_ms: int, callback: Callable) -> None:
-        """调度重复定时器。"""
         from PySide6.QtCore import QTimer
         timer = QTimer()
         timer.timeout.connect(callback)
@@ -253,21 +218,18 @@ class Scheduler:
         self._timer = timer
 
     def _resume_timers(self) -> None:
-        """恢复已暂停的定时器。"""
         if self._mode == self.SWITCH_MODE_DAILY:
             self._start_daily_timer()
         elif self._mode == self.SWITCH_MODE_INTERVAL:
             self._start_interval_timer()
 
     def _pause_timers(self) -> None:
-        """暂停/销毁所有定时器。"""
         if self._timer is not None:
             self._timer.stop()
             self._timer.deleteLater()
             self._timer = None
 
-    def _do_daily_switch(self) -> None:
-        """执行每日随机切换。"""
+    def _do_daily_timer(self) -> None:
         if self._library is None or self._wallpaper_manager is None:
             logger.warning("library/wallpaper_manager 未就绪")
             return
@@ -283,12 +245,10 @@ class Scheduler:
             if self._on_switch:
                 self._on_switch(image_path)
 
-        # 切换完成后重新调度下一天
         if self._is_running and not self._is_paused:
             self._start_daily_timer()
 
     def _do_interval_switch(self) -> None:
-        """执行间隔切换。"""
         if self._library is None or self._wallpaper_manager is None:
             logger.warning("library/wallpaper_manager 未就绪")
             return

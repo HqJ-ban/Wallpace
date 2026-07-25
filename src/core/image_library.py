@@ -36,7 +36,7 @@ class ImageLibrary:
         """
         self._directories: List[str] = directories or []
         self._extensions = (
-            {e.lower() for e in extensions}
+            {e.lower().lstrip(chr(46)) for e in extensions}
             if extensions
             else set(DEFAULT_EXTENSIONS)
         )
