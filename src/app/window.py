@@ -163,6 +163,34 @@ class MainWindow(QMainWindow):
         vertical_layout.addWidget(top_bar)
         vertical_layout.addLayout(body_layout)
 
+        # === Bottom status bar ===
+        self._bottom_bar = QFrame()
+        self._bottom_bar.setObjectName("bottom_bar")
+        self._bottom_bar.setFixedHeight(28)
+        bottom_layout = QHBoxLayout(self._bottom_bar)
+        bottom_layout.setContentsMargins(16, 4, 16, 4)
+        bottom_layout.setSpacing(12)
+
+        self._bottom_source_label = QLabel()
+        self._bottom_source_label.setStyleSheet("font-size: 11px; color: #9e9e9e;")
+        bottom_layout.addWidget(self._bottom_source_label)
+
+        self._bottom_notifier_label = QLabel()
+        self._bottom_notifier_label.setStyleSheet("font-size: 11px; color: #9e9e9e;")
+        bottom_layout.addWidget(self._bottom_notifier_label)
+
+        self._bottom_fav_count = QLabel()
+        self._bottom_fav_count.setStyleSheet("font-size: 11px; color: #9e9e9e;")
+        bottom_layout.addWidget(self._bottom_fav_count)
+
+        bottom_layout.addStretch()
+
+        self._bottom_version = QLabel("v0.1.0")
+        self._bottom_version.setStyleSheet("font-size: 11px; color: #bdbdbd;")
+        bottom_layout.addWidget(self._bottom_version)
+
+        vertical_layout.addWidget(self._bottom_bar)
+
         # === 托盘 ===
         self._tray = TrayIcon(self)
         self._tray.show()
@@ -504,6 +532,25 @@ class MainWindow(QMainWindow):
             self._gallery_layout.addWidget(lbl)
 
             self._preview_card.clear_preview()
+
+        # Update bottom status bar
+        self.update_bottom_bar()
+
+    def update_bottom_bar(self) -> None:
+        """Update bottom status bar with current library info."""
+        images = self._library.list_available()
+        dirs = self._library._directories or ["未配置"]
+        dir_text = ", ".join(dirs[:2])  # show first two dirs
+        fav_count = len(self._library.favorites)
+        enabled = "已启用" if self._scheduler and self._scheduler.is_active else "已暂停"
+        icon_folder = chr(0x1f5c) + chr(0x1f3eb)
+        self._bottom_source_label.setText(
+            icon_folder + " " + dir_text + " (" + str(len(images)) + "/" + str(self._library.total_count) + ")"
+        )
+        star_icon = chr(0x2605)
+        bell_icon = chr(0x1f441)
+        self._bottom_fav_count.setText(star_icon + " " + str(fav_count))
+        self._bottom_notifier_label.setText(bell_icon + " " + enabled)
 
     def open_settings(self) -> None:
         """切换到设置页面。"""
