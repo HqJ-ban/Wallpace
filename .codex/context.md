@@ -24,6 +24,26 @@
 - **favorites() vs favorites**: ImageLibrary.favorites 是 @property 返回 list，不能用 () 调用
 - **total_count() vs total_count**: 同样是 @property
 
+
+## Session 5 更新摘要 (2026-07-26 21:41)
+
+### Gallery Click Interaction 完成
+- **src/app/window.py**: 新增 _GalleryThumbWidget 可点击缩略图类
+  - 每张图片显示为 80x60 缩放 QPixmap
+  - 当前壁纸缩略图有蓝色边框 (#5c6bc0) 高亮
+  - 点击缩略图 → 设置该图片为系统壁纸 → 刷新预览卡片
+  - _on_gallery_click() 方法: wallpaper_manager.set_wallpaper + _update_preview
+  - _highlight_current_gallery_item() 方法: 遍历布局更新选中状态
+- 导入新增: rom PySide6.QtCore import Signal
+
+### 已知问题
+- 网络断开，GitHub push 失败 (session 5)
+- ell_icon emoji 仍使用 U+1F441 👁 而非 🔔 (P1 low priority)
+- Settings 面板仍是嵌入式页面，非 slide-in panel (按计划 Phase 后续)
+
+### Tests
+- **63 passed, 1 skipped** — 所有测试通过
+
 ## Phase 进度概览
 
 | Phase | 内容 | 状态 |
@@ -99,3 +119,14 @@ python src/main.py --test                                            # unittest 
 - Working dir: `D:\my_project\wallpace`
 - Remote: `https://github.com/HqJ-ban/Wallpace.git`
 - Sandbox: .git is read-only; git commands need escalation
+
+## Git Status (Session 5)
+- Latest local commit: pending gallery-click feature commit
+- Remote origin push: SKIPPED (network unavailable, needs retry)
+
+## Next Steps for Next Session
+1. **Commit gallery-click changes** to git and push when network is available
+2. **Settings slide-in panel** — convert settings from embedded page to right-edge sliding panel
+3. **Sidebar nav icons** — consider using Qt/FontAwesome instead of emoji characters
+4. **Phase 5: File Watcher** (src/core/file_watcher.py) — detect new/removed images
+5. **Phase 6: PyInstaller packaging** — generate single .exe with build.bat

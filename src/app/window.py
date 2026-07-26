@@ -9,7 +9,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
-from PySide6.QtCore import Qt, Slot
+from PySide6.QtCore import Qt, Signal, Slot
 from PySide6.QtGui import QIcon, QPixmap
 from PySide6.QtWidgets import (
     QFrame,
@@ -515,6 +515,21 @@ class MainWindow(QMainWindow):
         self._tray.setToolTip(f"Wallpace -- {file_name}")
 
 
+    def _on_gallery_click(self, image_path: str) -> None:
+        """User clicked a gallery thumbnail - update preview and set as wallpaper."""
+        try:
+            success = self._wallpaper_manager.set_wallpaper(image_path)
+            if success:
+                available = self._library.list_available()
+                index = available.index(image_path) if image_path in available else 0
+                self._update_preview(image_path, index)
+                self._highlight_current_gallery_item(image_path)
+            else:
+                logger.error("壁纸设置失败: %s", image_path)
+        except Exception:
+            logger.exception("画廊点击处理失败")
+
+
     def _refresh_gallery(self) -> None:
         """刷新扫描并更新 UI。"""
         images = self._library.scan()
@@ -535,6 +550,7 @@ class MainWindow(QMainWindow):
                 widget.deleteLater()
 
         images = self._library.list_available()
+        current_path = getattr(self._preview_card, '_current_path', '')
         for img_path in images[:20]:  # Show first 20
             lbl = QLabel()
             lbl.setFixedSize(80, 60)
@@ -545,10 +561,12 @@ class MainWindow(QMainWindow):
             lbl.setStyleSheet(
                 "QLabel { border-radius: 6px; background-color: #f5f5f5; border: 1px solid #eeeeee; }"
             )
-            lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            self._gallery_layout.addWidget(lbl)
+            thumb = _GalleryThumbWidget(img_path, is_current=(img_path == current_path))
+            thumb.clicked.connect(lambda p=img_path: self._on_gallery_click(p))
+            self._gallery_layout.addWidget(thumb)
 
 
+        self._gallery_items = images[:20]  # track for highlight updates
         # Update bottom and top status bars
         self.update_bottom_bar()
         self.update_top_status()
@@ -572,6 +590,14 @@ class MainWindow(QMainWindow):
             self._top_status.setText(f"● 已启用 · 每 {mins} 分钟")
         elif mode == "manual":
             self._top_status.setText("● 已启用 · 手动模式")
+
+    def _highlight_current_gallery_item(self, current_path: str) -> None:
+        """Update the visual highlight of the currently active gallery item."""
+        for w_idx in range(self._gallery_layout.count()):
+            widget = self._gallery_layout.itemAt(w_idx).widget()
+            if isinstance(widget, _GalleryThumbWidget):
+                widget.set_is_current(widget._image_path == current_path)
+
 
     def update_bottom_bar(self) -> None:
         """Update bottom status bar with current library info."""
