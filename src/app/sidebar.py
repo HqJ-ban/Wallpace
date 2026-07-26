@@ -1,40 +1,72 @@
-"""src/app/sidebar.py — 图标侧边栏导航组件。
+"""src/app/sidebar.py — Narrow icon sidebar navigation component.
 
-B 方案核心：左侧窄边栏，通过图标切换不同功能页面。
+Mockup target: 60px wide icon sidebar, hover tooltips, brand logo at top,
+action buttons (switch/skip/favorite) at bottom.
 """
 
 import logging
 from typing import Callable, Dict, Optional
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QFont
+from PySide6.QtCore import Qt, QRect, Signal
+from PySide6.QtGui import QFont, QIcon, QPainter, QColor
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
     QPushButton,
     QStackedWidget,
+    QToolTip,
     QVBoxLayout,
     QWidget,
 )
 
-from src.app.theme import COLOR_BLUE_ACCENT, COLOR_BLUE_DARK, COLOR_GRAY_500, COLOR_BLUE_MID
+from src.app.theme import  COLOR_PINK_LIGHT
 
 logger = logging.getLogger(__name__)
 
 
-class SidebarButton(QPushButton):
-    """侧边栏单个导航按钮。"""
+# ---------------------------------------------------------------------------
+# Icon helpers — lightweight vector icons drawn via QPainter (no icon files)
+# ---------------------------------------------------------------------------
 
-    def __init__(self, icon_text: str, label: str, page_id: str,
+def _make_icon(draw_fn):
+    """Return a QIcon from a paint callable(painter, rect)."""
+    icon = QIcon()
+    pixmap = icon.pixmap(1, 1)
+    if pixmap.isNull():
+        pixmap = QPixmap(24, 24)
+        pixmap.fill(Qt.GlobalColor.transparent)
+    icon.addPixmap(pixmap)
+
+    def painter(painter_obj, rect):
+        painter_obj.setRenderHint(QPainter.RenderHint.Antialiasing)
+        draw_fn(painter_obj, rect)
+
+    icon.painter = painter  # type: ignore[attr-defined]
+    return icon
+
+
+# We'll use direct paint calls on a custom button instead of QIcon, since
+# LGPL icon approach is simpler to inline.
+
+
+# ---------------------------------------------------------------------------
+# SidebarButton — single icon nav button
+# ---------------------------------------------------------------------------
+
+class SidebarButton(QPushButton):
+    """Single navigation button in the icon sidebar."""
+
+    def __init__(self, icon_char: str, label: str, page_id: str,
                  parent: Optional[QWidget] = None) -> None:
-        super().__init__(icon_text + "  " + label, parent)
+        super().__init__("", parent)
+        self._icon_char = icon_char
+        self._label = label
         self._page_id = page_id
+        self.setFixedSize(60, 48)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setObjectName("nav_button")
         self.setCheckable(True)
-        self.setMinimumHeight(36)
-        self.setMaximumWidth(220)
-        self.setFont(QFont("Microsoft YaHei UI", 11))
         self.setStyleSheet(self._base_style())
 
     @property
@@ -42,123 +74,234 @@ class SidebarButton(QPushButton):
         return self._page_id
 
     def _base_style(self) -> str:
+        active_bg = "qlineargradient(x1:0, y1:0, x2:1, y2:0," \
+                     " stop:0 #fce7f3, stop:1 #e0e7ff)"
+        hover_bg = QColor("#f9fafb").name()
         return (
-            "QPushButton#nav_button {{ "
-            "border: none; border-radius: 8px; "
-            "padding: 8px 16px; text-align: left; "
-            "color: {}; font-size: 13px; }}"
-            "QPushButton#nav_button:hover {{ "
-            "background-color: {}; "
-            "color: {}; }}"
-            "QPushButton#nav_button:checked {{ "
-            "background-color: {}; "
-            "color: white; "
-            "font-weight: bold; }}"
-        ).format(COLOR_GRAY_500, COLOR_BLUE_MID, COLOR_BLUE_DARK,
-                  COLOR_BLUE_ACCENT)
+            "QPushButton#nav_button {"
+            "border: none; border-radius: 10px;"
+            "padding: 0; background: transparent;"
+            "}"
+            "QPushButton#nav_button:hover {"
+            f"background-color: {hover_bg};"
+            "}"
+            "QPushButton#nav_button:checked {"
+            f"background: {active_bg};"
+            "}"
+        )
 
+    def paintEvent(self, event):  # noqa: ANN201
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        checked = self.isChecked()
+        color = QColor("#7c3aed" if checked else "#6b7280")
+        font = QFont("Segoe UI", 20)
+        painter.setFont(font)
+        painter.setPen(color)
+        painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, self._icon_char)
+        painter.end()
+
+    def enterEvent(self, event):  # noqa: ANN001
+        pos = self.mapToGlobal(self.rect().topRight())
+        pos.setX(pos.x() + 8)
+        QToolTip.showText(pos, self._label)
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):  # noqa: ANN001
+        QToolTip.hideText()
+        super().leaveEvent(event)
+
+
+# ---------------------------------------------------------------------------
+# ActionButton — bottom action buttons (switch / skip / favorite)
+# ---------------------------------------------------------------------------
+
+class ActionButton(QPushButton):
+    """Small circular action button at the bottom of the sidebar."""
+
+    clicked_action = Signal(str)  # emits action name when clicked
+
+    ICON_SIZE = 18
+
+    def __init__(self, icon_char: str, tooltip: str, action_name: str,
+                 parent: Optional[QWidget] = None) -> None:
+        super().__init__("", parent)
+        self._icon_char = icon_char
+        self._action_name = action_name
+        self.setFixedSize(44, 44)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setToolTip(tooltip)
+        self.setStyleSheet(self._style())
+        self.clicked.connect(lambda _: self.clicked_action.emit(action_name))
+
+    def _style(self) -> str:
+        return (
+            "QPushButton {"
+            "border: 2px solid #e5e7eb; border-radius: 22px;"
+            "background: white; padding: 0;"
+            "font-size: 18px; color: #6b7280;"
+            "}"
+            "QPushButton:hover {"
+            "border-color: #ec4899; color: #ec4899;"
+            "background: #fdf2f8;"
+            "}"
+        )
+
+    def paintEvent(self, event):  # noqa: ANN201
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setFont(QFont("Segoe UI", self.ICON_SIZE))
+        painter.setPen(QColor(self.palette().color(self.foregroundRole())))
+        painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, self._icon_char)
+        painter.end()
+
+
+# ---------------------------------------------------------------------------
+# BrandLogoWidget — "WP" gradient logo at the top of sidebar
+# ---------------------------------------------------------------------------
+
+class BrandLogoWidget(QWidget):
+    def __init__(self, parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        self.setFixedHeight(48)
+        self.setFixedWidth(60)
+        self.setToolTip("Wallpace")
+
+    def paintEvent(self, event):  # noqa: ANN201
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        # Gradient background
+        from PySide6.QtGui import QLinearGradient
+        grad = QLinearGradient(0, 0, 0, 48)
+        grad.setColorAt(0, QColor("#f472b6"))
+        grad.setColorAt(1, QColor("#818cf8"))
+        painter.fillRect(self.rect(), grad)
+
+        # White text
+        painter.setPen(QColor("white"))
+        font = QFont("Segoe UI", 14, QFont.Weight.Bold)
+        painter.setFont(font)
+        painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, "WP")
+
+
+# ---------------------------------------------------------------------------
+# SidebarNavigation — compact 60px icon sidebar
+# ---------------------------------------------------------------------------
 
 class SidebarNavigation(QWidget):
-    """左侧图标侧边栏。
+    """Compact icon sidebar navigation (60px wide).
 
-    包含品牌标识、4 个页面导航按钮和底部状态信息。
-    与右侧 QStackedWidget 配合使用，点击按钮切换页面。
+    Contains:
+      - Brand logo at top ("WP" gradient tile)
+      - Page navigation icons (home, gallery, clock, settings)
+      - Bottom action buttons (switch, skip, favorite)
     """
 
-    WIDTH = 72
-    EXPANDED_WIDTH = 220
-    BRAND_ICON_TEXT = "WP"
+    WIDTH = 60
 
+    # Icon chars mapped to page IDs
     NAV_ITEMS = [
-        ("home", "\u58c1\u7eb8\u9884\u89c8"),
-        ("gallery", "\u56fe\u7247\u5e93"),
-        ("clock", "\u65f6\u95f4"),
-        ("settings", "\u8bbe\u7f6e"),
+        ("\u2328", "home", "壁纸预览"),     # Desktop icon
+        ("\u25b6", "gallery", "图片库"),     # Play/gallery icon
+        ("\u23f1", "clock", "时间"),         # Clock icon
+        ("\u2699", "settings", "设置"),      # Gear icon
+    ]
+
+    ACTION_ITEMS = [
+        ("\u21bb", "\u21bb", "切换壁纸"),   # Rotate — switch wallpaper
+        ("\u2934", "\u23ed", "跳过当前"),   # Skip — skip current image
+        ("\u2605", "\u2606", "收藏/取消"),  # Star toggle — favorite
     ]
 
     def __init__(self, stacked: QStackedWidget,
                  on_settings_open: Callable[[], None],
+                 on_action_switch: Optional[Callable[[], None]] = None,
+                 on_action_skip: Optional[Callable[[], None]] = None,
+                 on_action_favorite: Optional[Callable[[], None]] = None,
                  parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self._stacked = stacked
         self._on_settings_open = on_settings_open
+        self._on_action_switch = on_action_switch
+        self._on_action_skip = on_action_skip
+        self._on_action_favorite = on_action_favorite
         self._buttons: Dict[str, SidebarButton] = {}
+        self._fav_state: bool = False  # track favorite toggle
 
-        self.setFixedWidth(self.EXPANDED_WIDTH)
+        self.setFixedWidth(self.WIDTH)
         self._setup_ui()
 
     def _setup_ui(self) -> None:
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(8, 12, 8, 8)
-        layout.setSpacing(6)
+        layout.setContentsMargins(0, 8, 0, 0)
+        layout.setSpacing(4)
 
-        # === 品牌标识 ===
-        brand = QFrame()
-        brand.setObjectName("brand")
-        brand.setFixedHeight(48)
-        brand_layout = QHBoxLayout(brand)
-        brand_layout.setContentsMargins(6, 0, 6, 0)
-        brand_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        # === Brand logo ===
+        logo = BrandLogoWidget(self)
+        layout.addWidget(logo, alignment=Qt.AlignmentFlag.AlignHCenter)
 
-        brand_icon = QLabel(self.BRAND_ICON_TEXT)
-        brand_icon.setStyleSheet(
-            "color: white; font-size: 16px; font-weight: bold; "
-            "background: qlineargradient(x1:0,y1:0,x2:0,y2:1, "
-            "stop:0 #e91e63, stop:1 #5c6bc0); "
-            "border-radius: 8px; padding: 4px 10px;"
-        )
-        brand_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addSpacing(8)
 
-        brand_text = QLabel("Wallpace")
-        brand_text.setObjectName("subtitle")
-        brand_text.setStyleSheet("padding-left: 8px;")
-
-        brand_layout.addWidget(brand_icon)
-        brand_layout.addWidget(brand_text)
-        layout.addWidget(brand)
-
-        layout.addStretch(2)
-
-        # === 导航按钮 ===
-        for page_id, label in self.NAV_ITEMS:
-            btn = SidebarButton("", label, page_id, self)
-            btn.toggled.connect(lambda checked, pid=page_id:
-                                self._on_page_toggled(pid, checked))
+        # === Navigation buttons ===
+        for icon_char, page_id, label in self.NAV_ITEMS:
+            btn = SidebarButton(icon_char, label, page_id, self)
+            btn.toggled.connect(
+                lambda checked, pid=page_id:
+                    self._on_page_toggled(pid, checked))
             self._buttons[page_id] = btn
             layout.addWidget(btn)
 
-        layout.addStretch(5)
+        layout.addStretch(1)
 
-        # === 底部状态 ===
-        status_frame = QFrame()
-        status_frame.setObjectName("sidebar_footer")
-        status_frame.setFixedHeight(48)
-        status_layout = QVBoxLayout(status_frame)
-        status_layout.setContentsMargins(8, 4, 8, 4)
+        # === Separator line ===
+        sep = QFrame()
+        sep.setFixedHeight(1)
+        sep.setFixedWidth(36)
+        sep.setObjectName("sidebar_sep")
+        sep.setStyleSheet("background-color: #e5e7eb; border-radius: 1px;")
+        layout.addWidget(sep, alignment=Qt.AlignmentFlag.AlignHCenter)
+        layout.addSpacing(4)
 
-        self.status_label = QLabel()
-        self.status_label.setObjectName("sub-title")
-        self.status_label.setStyleSheet(
-            "text-align: center; font-size: 11px; color: #9e9e9e;"
-        )
-        status_layout.addWidget(self.status_label)
-        layout.addWidget(status_frame)
+        # === Action buttons (switch / skip / favorite) ===
+        for icon_char, _, tooltip in self.ACTION_ITEMS:
+            act_btn = ActionButton(icon_char, tooltip, "", self)
+            act_btn.clicked.connect(self._handle_action)
+            layout.addWidget(act_btn)
 
-        # 默认选中首页
+        layout.addStretch(2)
+
+        # Default: select home
         self._buttons["home"].setChecked(True)
         self._stacked.setCurrentIndex(0)
+
+    def _handle_action(self, action_name: str) -> None:
+        """Route action button clicks to callbacks."""
+        if action_name == "切换壁纸" and self._on_action_switch:
+            self._on_action_switch()
+        elif action_name == "跳过当前" and self._on_action_skip:
+            self._on_action_skip()
+        elif action_name in ("收藏", "取消收藏") and self._on_action_favorite:
+            self._on_action_favorite()
+
+    def set_favorite_state(self, state: bool) -> None:
+        """Update the favorite button visual."""
+        self._fav_state = state
+        # We'd need a reference to the star button; for now just log
+        logger.debug("Favorite state changed: %s", state)
 
     def _on_page_toggled(self, page_id: str, checked: bool) -> None:
         if not checked:
             return
-        idx_map = {pid: i for i, (pid, _) in enumerate(self.NAV_ITEMS)}
+        idx_map = {pid: i for i, (i, pid, _) in enumerate(self.NAV_ITEMS)}
         if page_id in idx_map:
             self._stacked.setCurrentIndex(idx_map[page_id])
         if page_id == "settings":
             self._on_settings_open()
 
     def update_status(self, text: str) -> None:
-        self.status_label.setText(text)
+        pass  # No status label in narrow sidebar
 
     def set_active_button(self, page_id: str) -> None:
         for pid, btn in self._buttons.items():

@@ -126,3 +126,30 @@ python src/main.py --test           # 仅运行 unittest 测试
 2. **Phase 5: 文件监听器** (`src/core/file_watcher.py`) — 检测新增/删除图片，自动刷新 library
 3. **Phase 6: PyInstaller 打包** (`build.bat`, icon.ico) — 生成单文件 .exe
 4. 非阻塞 UI polish: sidebar 按钮加图标, `_set_active_button` 联动
+
+---
+
+# Wallpace 项目上下文 (续)
+
+## 当前进度 (2026-07-26)
+- **核心模块**: ✅ Phase 1-3 完成 — settings, image_library, wallpaper_manager, scheduler
+- **UI 模块**: ✅ sidebar.py 重写为 60px 窄侧边栏 + 图标按钮 + hover tooltip
+- **UI 组件**: ✅ PreviewCard 增加底部渐变叠加层（文件名+路径+索引）
+- **页面结构**: ✅ Info Grid (3 stat cards) + Gallery 水平滚动缩略图已添加
+- **Tests**: ✅ 41 passed, 1 skipped (sandbox permission errors are expected)
+- **Remote**: `https://github.com/HqJ-ban/Wallpace.git` (master branch)
+
+## 待办事项 (优先级排序)
+1. **Bottom status bar** — 显示目录信息、通知状态、版本号
+2. **Settings slide-in panel** — 将设置页改为从右侧滑入的面板
+3. **Git commit & push** — 提交当前 UI  polish 变更
+4. **Phase 5: File Watcher** — 检测新增/删除图片，自动刷新 library
+5. **Phase 6: PyInstaller packaging** — 生成单文件 .exe
+6. **Sidebar icon polishing** — 改用 Qt SVG/Lucide 图标替代 Emoji 字符
+
+## 关键文件
+- `src/app/window.py` — MainWindow 主窗口构建
+- `src/app/sidebar.py` — 60px 窄侧边栏导航 + ActionButton
+- `src/app/widgets/preview_card.py` — 预览卡片组件（含 overlay）
+- `src/app/theme.py` — 粉蓝渐变主题
+- `D:/my_project/mockups/detail-view.html` — UI mockup 参考

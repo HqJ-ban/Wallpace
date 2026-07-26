@@ -1,6 +1,7 @@
-"""src/app/widgets/preview_card.py -- 壁纸预览卡片组件。
+"""src/app/widgets/preview_card.py -- Wallpaper preview card component.
 
-显示当前壁纸的缩略图、文件名和切换操作按钮。
+Shows current wallpaper thumbnail, filename, path + index overlay, 
+and transition/skip/favorite operations.
 """
 
 import logging
@@ -8,7 +9,7 @@ from pathlib import Path
 from typing import Optional
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QPixmap
+from PySide6.QtGui import QColor, QLinearGradient, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -23,9 +24,10 @@ logger = logging.getLogger(__name__)
 
 
 class PreviewCardWidget(QWidget):
-    """当前壁纸预览卡片组件。
+    """Current wallpaper preview card component.
 
-    包含：大图预览 + 文件名信息 + 切换操作按钮。
+    Contains: large preview image with bottom gradient overlay +
+    filename/source/path/index info, plus transition operations.
     """
 
     switch_clicked = Signal()
@@ -35,6 +37,8 @@ class PreviewCardWidget(QWidget):
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self._current_path: str = ""
+        self._current_index: int = 0
+        self._total_count: int = 0
         self._setup_ui()
         self._set_placeholder()
 
@@ -44,51 +48,61 @@ class PreviewCardWidget(QWidget):
         layout.setSpacing(16)
         layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
-        # 预览图片
+        # === Preview image with overlay frame ===
+        self.preview_frame = QWidget()
+        self.preview_frame.setFixedHeight(300)
+        self.preview_frame.setStyleSheet("background-color: transparent;")
+        preview_layout = QVBoxLayout(self.preview_frame)
+        preview_layout.setContentsMargins(0, 0, 0, 0)
+        preview_layout.setSpacing(0)
+
+        # Image label (top portion)
         self.preview_label = QLabel("(暂无预览)")
         self.preview_label.setObjectName("preview-image")
         self.preview_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.preview_label.setMinimumSize(480, 300)
         self.preview_label.setMaximumSize(480, 300)
-        self.preview_label.setStyleSheet(
-            "QLabel#preview-image { "
-            "min-width: 480px; min-height: 300px; "
-            "max-width: 480px; max-height: 300px; }"
-        )
-        layout.addWidget(self.preview_label, alignment=Qt.AlignmentFlag.AlignCenter)
+        preview_layout.addWidget(self.preview_label, alignment=Qt.AlignmentFlag.AlignCenter)
 
-        # 文件名和大小
-        name_layout = QHBoxLayout()
-        name_layout.addStretch()
-        self.filename_label = QLabel("尚未选择图片")
-        self.filename_label.setObjectName("subtitle")
-        name_layout.addWidget(self.filename_label)
+        # Bottom overlay (gradient + text info)
+        self._setup_overlay()
+        preview_layout.addWidget(self.overlay_frame, alignment=Qt.AlignmentFlag.AlignLeft)
 
-        self.size_label = QLabel()
-        self.size_label.setObjectName("subtitle")
-        name_layout.addWidget(self.size_label)
-        name_layout.addStretch()
-        layout.addLayout(name_layout)
+        layout.addWidget(self.preview_frame, alignment=Qt.AlignmentFlag.AlignCenter)
 
-        # 操作按钮
+        # === Action buttons ===
         btn_layout = QHBoxLayout()
         btn_layout.addStretch()
 
         btn_skip = QPushButton("跳过")
         btn_skip.clicked.connect(self.skip_clicked)
-        btn_skip.setMinimumWidth(80)
+        btn_skip.setStyleSheet(
+            "QPushButton { border: none; border-radius: 10px; padding: 8px 18px; "
+            "background-color: transparent; color: #9ca3af; font-size: 13px; } "
+            "QPushButton:hover { background-color: #fdf2f8; color: #ec4899; }"
+        )
 
         btn_favorite = QPushButton("收藏")
         btn_favorite.clicked.connect(self.favorite_clicked)
-        btn_favorite.setMinimumWidth(80)
+        btn_favorite.setStyleSheet(
+            "QPushButton { border: none; border-radius: 10px; padding: 8px 18px; "
+            "background-color: transparent; color: #9ca3af; font-size: 13px; } "
+            "QPushButton:hover { background-color: #dbeafe; color: #6366f1; }"
+        )
 
         btn_switch = QPushButton("换一张")
-        btn_switch.setObjectName("primary")
         btn_switch.setStyleSheet(
-            "QPushButton#primary { "
-            "padding: 10px 32px; "
-            "font-size: 14px; font-weight: 700; "
-            "border-radius: 10px; }"
+            "QPushButton { "
+            "border: none; border-radius: 12px; padding: 10px 32px; "
+            "font-size: 14px; font-weight: 600; color: white; "
+            "background: qlineargradient(x1:0, y1:0, x2:1, y2:0, "
+            "stop:0 #ec4899, stop:1 #6366f1); } "
+            "QPushButton:hover { "
+            "background: qlineargradient(x1:0, y1:0, x2:1, y2:0, "
+            "stop:0 #f472b6, stop:1:818cf8); } "
+            "QPushButton:pressed { "
+            "background: qlineargradient(x1:0, y1:0, x2:1, y2:0, "
+            "stop:0 #db2777, stop:1:4f46e5); }"
         )
         btn_switch.clicked.connect(self.switch_clicked)
         btn_switch.setMinimumWidth(96)
@@ -98,6 +112,52 @@ class PreviewCardWidget(QWidget):
         btn_layout.addWidget(btn_switch)
         btn_layout.addStretch()
         layout.addLayout(btn_layout)
+
+    def _setup_overlay(self) -> None:
+        """Bottom gradient overlay with filename, source path, and index number."""
+        self.overlay_frame = QWidget()
+        self.overlay_frame.setFixedHeight(80)
+        overlay_layout = QVBoxLayout(self.overlay_frame)
+        overlay_layout.setContentsMargins(0, 0, 0, 0)
+
+        # Gradient background
+        self.overlay_frame.setStyleSheet(
+            "QWidget { "
+            f"background: qlineargradient(x1:0, y1:0, x2:0, y2:1, "
+            "stop:0 rgba(255,255,255,0), stop:1 rgba(0,0,0,0.6)); "
+            "border-top: 1px solid rgba(255,255,255,0.1);"
+            "}"
+        )
+
+        # File name label
+        self.filename_label = QLabel("尚未选择图片")
+        self.filename_label.setObjectName("subtitle")
+        self.filename_label.setStyleSheet("color: white; font-size: 14px; font-weight: 500;")
+        overlay_layout.addWidget(self.filename_label)
+
+        # Source path + index row
+        info_row = QHBoxLayout()
+        info_row.setContentsMargins(0, 2, 0, 0)
+
+        self.path_label = QLabel("—")
+        self.path_label.setObjectName("sub-title")
+        self.path_label.setStyleSheet("color: rgba(255,255,255,0.7); font-size: 11px;")
+        info_row.addWidget(self.path_label)
+
+        info_row.addStretch()
+
+        self.index_label = QLabel("")
+        self.index_label.setObjectName("badge")
+        self.index_label.setStyleSheet(
+            "QLabel#badge { "
+            "background-color: rgba(236, 72, 153, 0.8); "
+            "color: white; font-size: 11px; "
+            "padding: 2px 8px; border-radius: 10px;"
+            "}"
+        )
+        info_row.addWidget(self.index_label)
+
+        overlay_layout.addLayout(info_row)
 
     def _set_placeholder(self) -> None:
         self.preview_label.setStyleSheet(
@@ -109,8 +169,11 @@ class PreviewCardWidget(QWidget):
             f"max-width: 480px; max-height: 300px;"
         )
 
-    def update_preview(self, image_path: str) -> None:
+    def update_preview(self, image_path: str, index: int = 0, total: int = 0) -> None:
         self._current_path = image_path
+        self._current_index = index
+        self._total_count = total
+
         file_name = Path(image_path).stem
         file_size = ""
         try:
@@ -121,7 +184,8 @@ class PreviewCardWidget(QWidget):
             pass
 
         self.filename_label.setText(file_name)
-        self.size_label.setText(file_size)
+        self.path_label.setText(str(Path(image_path).parent))
+        self.index_label.setText(f"{index + 1} / {total}")
 
         pixmap = QPixmap(image_path)
         if not pixmap.isNull():
@@ -143,7 +207,10 @@ class PreviewCardWidget(QWidget):
 
     def clear_preview(self) -> None:
         self._current_path = ""
+        self._current_index = 0
+        self._total_count = 0
         self.filename_label.setText("未选择图片")
-        self.size_label.setText("")
+        self.path_label.setText("—")
+        self.index_label.setText("")
         self.preview_label.clear()
         self._set_placeholder()

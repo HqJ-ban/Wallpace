@@ -10,13 +10,14 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
 from PySide6.QtCore import Qt, Slot
-from PySide6.QtGui import QIcon
+from PySide6.QtGui import QIcon, QPixmap
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
     QMainWindow,
     QPushButton,
+    QScrollArea,
     QStackedWidget,
     QVBoxLayout,
     QWidget,
@@ -29,7 +30,7 @@ if TYPE_CHECKING:
     from src.core.wallpaper_manager import WallpaperManager
 
 from src.app.sidebar import SidebarNavigation
-from src.app.theme import COLOR_BLUE_DARK, COLOR_GRAY_100, ThemeManager
+from src.app.theme import COLOR_BLUE_DARK, COLOR_GRAY_50, COLOR_GRAY_800, COLOR_PINK_LIGHT, COLOR_BLUE_LIGHT, COLOR_GRAY_100, ThemeManager
 from src.app.tray import TrayIcon
 from src.app.widgets.preview_card import PreviewCardWidget
 
@@ -146,11 +147,14 @@ class MainWindow(QMainWindow):
         body_layout.addWidget(self._stacked, stretch=1)
 
         # 侧边栏
-        sidebar = SidebarNavigation(
+        self._sidebar = SidebarNavigation(
             stacked=self._stacked,
             on_settings_open=self.open_settings,
+            on_action_switch=self.request_switch,
+            on_action_skip=self._handle_skip,
+            on_action_favorite=lambda: None,  # handled via preview_card favorite signal
         )
-        body_layout.insertWidget(0, sidebar)
+        body_layout.insertWidget(0, self._sidebar)
 
         # 合并到中心布局
         vertical_layout = QVBoxLayout(central)
@@ -206,32 +210,79 @@ class MainWindow(QMainWindow):
         scroll_scroll_layout.addWidget(self._preview_card)
         layout.addWidget(scroll, stretch=1)
 
-        # 底部统计
-        stats_row = QHBoxLayout()
-        stats_row.setContentsMargins(24, 0, 24, 12)
 
-        dir_label = QLabel("目录")
-        dir_label.setObjectName("stat-label")
-        stats_row.addWidget(dir_label)
+        # === Info Grid (3 stat cards) ===
+        info_grid = QFrame()
+        info_grid.setObjectName("info_grid")
+        info_layout = QHBoxLayout(info_grid)
+        info_layout.setContentsMargins(24, 8, 24, 8)
+        info_layout.setSpacing(12)
 
-        self._dir_count_label = QLabel("0")
-        self._dir_count_label.setObjectName("stat-value")
-        stats_row.addWidget(self._dir_count_label)
+        self._method_card = self._make_info_card("切换方式", str(self._settings.get("switch_mode", "daily_random")))
+        info_layout.addWidget(self._method_card)
 
-        stats_row.addSpacing(32)
+        info_layout.addSpacing(12)
 
-        img_label = QLabel("图片")
-        img_label.setObjectName("stat-label")
-        stats_row.addWidget(img_label)
+        self._next_time_card = self._make_info_card("下次切换", "--:--")
+        info_layout.addWidget(self._next_time_card)
 
-        self._img_count_label = QLabel("0")
-        self._img_count_label.setObjectName("stat-value")
-        stats_row.addWidget(self._img_count_label)
+        info_layout.addSpacing(12)
 
-        stats_row.addStretch()
-        layout.addLayout(stats_row)
+        self._count_card = self._make_info_card("图片总数", "0")
+        info_layout.addWidget(self._count_card)
+
+        layout.addWidget(info_grid)
+
+
+        # === Gallery Horizontal Scroll Section ===
+        gallery_section = QFrame()
+        gallery_section.setObjectName("gallery-section")
+        gallery_layout = QVBoxLayout(gallery_section)
+        gallery_layout.setContentsMargins(24, 12, 24, 12)
+        gallery_layout.setSpacing(8)
+
+        gallery_title = QLabel("图片库")
+        gallery_title.setObjectName("subtitle")
+        gallery_layout.addWidget(gallery_title)
+
+        # Horizontal scroll area for thumbnails
+        self._gallery_scroll = QScrollArea()
+        self._gallery_scroll.setFixedHeight(100)
+        self._gallery_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._gallery_scroll.setWidgetResizable(True)
+        self._gallery_content = QWidget()
+        self._gallery_layout = QHBoxLayout(self._gallery_content)
+        self._gallery_layout.setContentsMargins(0, 0, 0, 0)
+        self._gallery_layout.setSpacing(8)
+        self._gallery_scroll.setWidget(self._gallery_content)
+        gallery_layout.addWidget(self._gallery_scroll)
+
+        layout.addWidget(gallery_section)
+
 
         return page
+
+    def _make_info_card(self, label, value):
+        card = QFrame()
+        card.setObjectName("info-card")
+        card.setFixedWidth(160)
+        card.setStyleSheet(
+            "QFrame#info-card { background-color: #fafafa; border-radius: 10px; padding: 10px; } " "QFrame#info-card.highlight { background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #fce4ec, stop:1 #bbdefb); }"
+        )
+        card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(10, 8, 10, 8)
+
+        lbl = QLabel(label)
+        lbl.setObjectName("sub-title")
+        lbl.setStyleSheet("font-size: 11px; color: #9e9e9e;")
+        card_layout.addWidget(lbl)
+
+        val = QLabel(value)
+        val.setObjectName("stat-value")
+        val.setStyleSheet("font-size: 16px; font-weight: 600; color: #424242;")
+        card_layout.addWidget(val)
+
+        return card
 
     def _build_gallery_placeholder(self) -> QWidget:
         page = QWidget()
@@ -412,13 +463,12 @@ class MainWindow(QMainWindow):
     def _update_preview(self, path: str, index: int) -> None:
         """更新预览卡片和页面状态。"""
         self._current_image_index = index
-        self._preview_card.update_preview(path)
+        self._preview_card.update_preview(path, index, self._library.total_count)
 
-        self._dir_count_label.setText(str(self._library.directory_count))
-        self._img_count_label.setText(str(self._library.total_count))
 
         file_name = Path(path).stem
         self._tray.setToolTip(f"Wallpace -- {file_name}")
+
 
     def _refresh_gallery(self) -> None:
         """刷新扫描并更新 UI。"""
@@ -427,10 +477,33 @@ class MainWindow(QMainWindow):
             first = images[0]
             self._update_preview(first, 0)
             logger.info("刷新图片库: %d 张", len(images))
+            self._refresh_gallery_thumbnails()
         else:
+
+            pass
+    def _refresh_gallery_thumbnails(self) -> None:
+        """Populate gallery horizontal scroll with thumbnails."""
+        # Clear existing widgets
+        for i in reversed(range(self._gallery_layout.count())):
+            widget = self._gallery_layout.itemAt(i).widget()
+            if widget is not None:
+                widget.deleteLater()
+
+        images = self._library.list_available()
+        for img_path in images[:20]:  # Show first 20
+            lbl = QLabel()
+            lbl.setFixedSize(80, 60)
+            pixmap = QPixmap(img_path)
+            if not pixmap.isNull():
+                scaled = pixmap.scaled(80, 60, Qt.AspectRatioMode.KeepAspectRatioByExpanding, Qt.TransformationMode.SmoothTransformation)
+                lbl.setPixmap(scaled)
+            lbl.setStyleSheet(
+                "QLabel { border-radius: 6px; background-color: #f5f5f5; border: 1px solid #eeeeee; }"
+            )
+            lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            self._gallery_layout.addWidget(lbl)
+
             self._preview_card.clear_preview()
-            self._img_count_label.setText("0")
-            self._dir_count_label.setText("0")
 
     def open_settings(self) -> None:
         """切换到设置页面。"""
@@ -440,7 +513,8 @@ class MainWindow(QMainWindow):
 
     def _set_active_button(self, page_id: str) -> None:
         """供 SidebarNavigation 外部调用。"""
-        pass
+        if hasattr(self, "_sidebar"):
+            self._sidebar.set_active_button(page_id)
 
     def _get_time_string(self) -> str:
         now = datetime.now()
