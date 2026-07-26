@@ -275,7 +275,7 @@ class SidebarNavigation(QWidget):
         # === Action buttons (switch / skip / favorite) ===
         self._action_buttons = []  # track for toggle access
         for icon_def, icon_act, tooltip in self.ACTION_ITEMS:
-            act_btn = ActionButton(icon_def, icon_act, tooltip, "", self)
+            act_btn = ActionButton(icon_def, icon_act, tooltip, tooltip, self)
             self._action_buttons.append(act_btn)
             act_btn.clicked.connect(self._handle_action)
             layout.addWidget(act_btn)
@@ -293,7 +293,7 @@ class SidebarNavigation(QWidget):
             self._on_action_switch()
         elif action_name == "跳过当前" and self._on_action_skip:
             self._on_action_skip()
-        elif action_name in ("收藏", "取消收藏") and self._on_action_favorite:
+        elif action_name == "收藏" and self._on_action_favorite:
             self._on_action_favorite()
 
     def set_favorite_state(self, state: bool) -> None:
@@ -305,7 +305,7 @@ class SidebarNavigation(QWidget):
     def _on_page_toggled(self, page_id: str, checked: bool) -> None:
         if not checked:
             return
-        idx_map = {pid: i for i, (i, pid, _) in enumerate(self.NAV_ITEMS)}
+        idx_map = {name: pos for pos, (_, name, _) in enumerate(self.NAV_ITEMS)}
         if page_id in idx_map:
             self._stacked.setCurrentIndex(idx_map[page_id])
         if page_id == "settings":
