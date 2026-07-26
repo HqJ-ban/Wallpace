@@ -26,31 +26,6 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# Icon helpers — lightweight vector icons drawn via QPainter (no icon files)
-# ---------------------------------------------------------------------------
-
-def _make_icon(draw_fn):
-    """Return a QIcon from a paint callable(painter, rect)."""
-    icon = QIcon()
-    pixmap = icon.pixmap(1, 1)
-    if pixmap.isNull():
-        pixmap = QPixmap(24, 24)
-        pixmap.fill(Qt.GlobalColor.transparent)
-    icon.addPixmap(pixmap)
-
-    def painter(painter_obj, rect):
-        painter_obj.setRenderHint(QPainter.RenderHint.Antialiasing)
-        draw_fn(painter_obj, rect)
-
-    icon.painter = painter  # type: ignore[attr-defined]
-    return icon
-
-
-# We'll use direct paint calls on a custom button instead of QIcon, since
-# LGPL icon approach is simpler to inline.
-
-
-# ---------------------------------------------------------------------------
 # SidebarButton — single icon nav button
 # ---------------------------------------------------------------------------
 

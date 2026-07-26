@@ -248,6 +248,23 @@ class Scheduler:
         if self._is_running and not self._is_paused:
             self._start_daily_timer()
 
+    def get_next_switch_time(self) -> Optional[datetime]:
+        """Return the next scheduled switch time (daily_random mode only).
+
+        Returns None if scheduler is not running or not in daily mode.
+        """
+        if self._mode != self.SWITCH_MODE_DAILY or not self._is_running:
+            return None
+        now = datetime.now()
+        target = now.replace(
+            hour=self._daily_time.hour,
+            minute=self._daily_time.minute,
+            second=0, microsecond=0,
+        )
+        if target <= now:
+            target += timedelta(days=1)
+        return target
+
     def _do_interval_switch(self) -> None:
         if self._library is None or self._wallpaper_manager is None:
             logger.warning("library/wallpaper_manager 未就绪")

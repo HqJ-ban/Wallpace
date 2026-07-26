@@ -548,7 +548,6 @@ class MainWindow(QMainWindow):
             lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
             self._gallery_layout.addWidget(lbl)
 
-            self._preview_card.clear_preview()
 
         # Update bottom and top status bars
         self.update_bottom_bar()
@@ -581,7 +580,7 @@ class MainWindow(QMainWindow):
         dir_text = ", ".join(dirs[:2])  # show first two dirs
         fav_count = len(self._library.favorites)
         enabled = "已启用" if self._scheduler and self._scheduler.is_active else "已暂停"
-        icon_folder = chr(0x1f5c) + chr(0x1f3eb)
+        icon_folder = "\U0001f4c2"  # 📂 folder
         self._bottom_source_label.setText(
             icon_folder + " " + dir_text + " (" + str(len(images)) + "/" + str(self._library.total_count) + ")"
         )
