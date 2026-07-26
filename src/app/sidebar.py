@@ -124,10 +124,12 @@ class ActionButton(QPushButton):
 
     ICON_SIZE = 18
 
-    def __init__(self, icon_char: str, tooltip: str, action_name: str,
+    def __init__(self, icon_default: str, icon_active: str, tooltip: str, action_name: str,
                  parent: Optional[QWidget] = None) -> None:
         super().__init__("", parent)
-        self._icon_char = icon_char
+        self._icon_default = icon_default
+        self._icon_active = icon_active
+        self._is_active = False
         self._action_name = action_name
         self.setFixedSize(44, 44)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -153,8 +155,14 @@ class ActionButton(QPushButton):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         painter.setFont(QFont("Segoe UI", self.ICON_SIZE))
         painter.setPen(QColor(self.palette().color(self.foregroundRole())))
-        painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, self._icon_char)
+        icon = self._icon_active if self._is_active else self._icon_default
+        painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, icon)
         painter.end()
+
+    def set_active(self, active: bool) -> None:
+        """Toggle the button's active state and repaint."""
+        self._is_active = active
+        self.update()
 
 
 # ---------------------------------------------------------------------------
@@ -210,9 +218,9 @@ class SidebarNavigation(QWidget):
     ]
 
     ACTION_ITEMS = [
-        ("\u21bb", "\u21bb", "切换壁纸"),   # Rotate — switch wallpaper
-        ("\u2934", "\u23ed", "跳过当前"),   # Skip — skip current image
-        ("\u2605", "\u2606", "收藏/取消"),  # Star toggle — favorite
+        ("↻", "↻", "切换壁纸"),       # Rotate — switch wallpaper
+        ("⤴", "⏭", "跳过当前"),       # Skip — skip current image
+        ("☆", "★", "收藏"),            # Star unfilled -> filled
     ]
 
     def __init__(self, stacked: QStackedWidget,
@@ -265,10 +273,13 @@ class SidebarNavigation(QWidget):
         layout.addSpacing(4)
 
         # === Action buttons (switch / skip / favorite) ===
-        for icon_char, _, tooltip in self.ACTION_ITEMS:
-            act_btn = ActionButton(icon_char, tooltip, "", self)
+        self._action_buttons = []  # track for toggle access
+        for icon_def, icon_act, tooltip in self.ACTION_ITEMS:
+            act_btn = ActionButton(icon_def, icon_act, tooltip, "", self)
+            self._action_buttons.append(act_btn)
             act_btn.clicked.connect(self._handle_action)
             layout.addWidget(act_btn)
+            act_btn.setToolTip(tooltip)
 
         layout.addStretch(2)
 

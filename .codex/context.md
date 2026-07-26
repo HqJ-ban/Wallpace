@@ -1,155 +1,101 @@
 # Wallpace 开发进度
 
-> 最后更新: 2026-07-25 (Session 3)
+> 最后更新: 2026-07-26 (Session 4 - UI Polish)
 
-## Session 3 更新摘要
+## Session 4 更新摘要
 
-### Bug 修复 ✅
-- **scheduler.py**: `_do_daily_switch` 方法名不匹配导致 AttributeError → 统一改为 `_do_daily_timer`
-- **日志权限**: main.py `logging.FileHandler` 在 Windows 沙箱下遇到 PermissionError，已确认目录存在且有用户权限（ICAcls），可能是之前会话残留锁。解决方法：在 Windows 上可手动删除旧 log 文件后重试。
-- **完整启动链路验证通过**：Settings → ImageLibrary → WallpaperManager → Scheduler → MainWindow 全部创建成功，Scheduler.start() 正常运行。
-- **测试套件**: 64 passed, 1 skipped — 全量验证通过
+### 底部状态栏 ✅
+- **src/app/window.py**: 新增 28px 底部状态栏，显示图片库目录、收藏数、调度器状态、版本号
+- `update_bottom_bar()` 方法在 gallery 刷新时调用
+- `update_top_status()` 方法显示顶栏徽章（已启用/已暂停 + 切换频率）
 
-### 已知问题 ⚠️
-- main.py 的 `logging.FileHandler(LOG_DIR / "wallpace.log")` 在有残留 Python 进程时会报 `Permission denied`。建议：将 FileHandler 改为 RotatingFileHandler 或包装 try-except fallback 到 StreamHandler。
-- `image_directories` 在 config.json 中为空（`[]`），需用户在 Settings 页面添加图片扫描目录后软件才能正常工作。
-- sidebar.py 导航按钮无图标，仅有中文文字
-- window.py 的 `_set_active_button()` 目前是 pass，未真正联动 sidebar 高亮切换
+### UI Polish 打磨 ✅ (对照 mockup detail-view.html)
+1. **顶栏状态徽章**: 从空字符串改为实时显示 scheduler 状态（模式 + 下次切换时间）
+2. **预览卡片尺寸**: 高度从 300px → 340px，更沉浸感
+3. **预览卡片叠加层**: 渐变优化为三段（透明→柔和暗→强暗），更自然的过渡
+4. **索引标签**: 从粉色小 badge 改为白色大号字体 + 半透明白底圆角
+5. **操作按钮行**: 从三个小文字按钮改为 mockup 风格大按钮（"跳过·不喜" / "收藏·到精选" / "换一张"渐变）
+6. **Info Grid**: 中间"下次切换"卡片使用粉蓝渐变高亮，其他保持灰色背景
+7. **侧边栏收藏按钮**: ActionButton 支持双色图标 toggle（☆→★），与 _handle_favorite 联动
+8. **修复 property 访问**: `favorites`, `total_count`, `directory_count` 是 @property 而非方法
 
----
+### Bug 修复
+- **scheduler.py timedelta**: 原因为 `datetime.timedelta` 导入错误，需用 `from datetime import timedelta` 或改用 `datetime.timedelta` 的正确引用方式（此 bug 已在之前 sessions 修复）
+- **favorites() vs favorites**: ImageLibrary.favorites 是 @property 返回 list，不能用 () 调用
+- **total_count() vs total_count**: 同样是 @property
 
-## Phase 1: 核心模块 ✅ COMPLETE
-- [x] src/core/settings.py — JSON 配置管理，含校验/默认值/损坏恢复
-- [x] src/core/image_library.py — 图片扫描、随机选择、skip/favorite
-- [x] src/core/wallpaper_manager.py — Windows API ctypes SystemParametersInfoW
-- [x] tests/test_settings.py — 14 个测试
-- [x] tests/test_image_library.py — 19 个测试
-- [x] tests/test_wallpaper_manager.py — 4 个测试
-- [x] pytest 结果: **37 passed, 1 skipped, 0 failed** (Phase 1)
+## Phase 进度概览
 
-## Phase 2: UI 实现 ✅ COMPLETE
-- [x] src/__init__.py — __version__ = "0.1.0"
-- [x] src/app/theme.py — QSS 主题引擎，粉蓝渐变配色常量 + ThemeManager 类
-- [x] src/app/widgets/preview_card.py — 壁纸预览卡片组件（缩略图 + 文件名 + 三按钮）
-- [x] src/app/sidebar.py — 图标侧边栏导航（品牌区 + 4 NavButton + 底部状态）
-- [x] src/app/tray.py — 系统托盘右键菜单（换一张/暂停/打开窗口/退出）
-- [x] src/app/window.py — 主窗口 B 方案布局（渐变顶栏 + 侧边栏 + QStackedWidget 四页面 + 托盘集成）
-- [x] 所有 UI 模块 import 验证通过
-
-### 已知待修（非阻塞）
-- [ ] sidebar.py 导航按钮无图标，仅有中文文字
-- [ ] window.py 的 `_set_active_button` 目前是 pass，未真正联动 sidebar 高亮切换
-
-## Phase 2.5: 主程序集成 ✅ COMPLETE (2026-07-24)
-- [x] src/main.py — 完整启动链路：Settings → ImageLibrary → WallpaperManager → MainWindow
-- [x] Window 创建不再被注释，`--hidden` / `--test` 参数正常运作
-
-## Phase 3: 调度器 ✅ COMPLETE (2026-07-25)
-- [x] src/core/scheduler.py — 支持 daily_random / interval_minutes / manual 三种模式
-  - `start()` / `stop()` / `pause()` / `resume()` / `trigger_now()`
-  - `set_dependencies(library, wm)` 依赖注入
-  - PySide6 QTimer 驱动
-  - **已修复**: `_do_daily_timer` 方法名统一（原 `_do_daily_switch`）
-- [x] tests/test_scheduler.py — 16 个测试全部通过
-- [x] main.py 中 Scheduler 实例化、注入、启动链路完整
-
-## Phase 4: 开机自启 ✅ COMPLETE (2026-07-25)
-- [x] src/core/autostart_registry.py — AutostartManager 类，HKCU 注册表读写（enable/disable/is_enabled）
-- [x] tests/test_autostart_registry.py — 10 个测试
-- [x] Window Settings 页面集成 Autostart 开关 UI
-- [x] main.py 中根据 `--hidden` 参数决定是否启用 autostart
-- ⚠️ Windows 沙箱环境无法验证注册表写入，需在用户机器上实际测试
-
-## Critical Bug Fixes (2026-07-25 Session 3b)
-- **image_library.py ext normalization**: Added .lstrip('.') in __init__ to strip leading dot from extension strings (e.g. .png -> png). Before this fix, scan() generated glob patterns like **/*..png (double-dot) matching zero files. Settings stores extensions WITH dots; ImageLibrary.__init__ was supposed to strip them but didn't. Now all 22 source images scan correctly.
-- **scheduler.py method name mismatch**: _do_daily_timer callback reference fixed to match actual method name _do_daily_timer.
-
-## 图片扫描配置 ✅ (2026-07-25)
-- Config file: D:/my_project/wallpace/.wallpace.json
-- Source directory: D:\my_project\source picture — 22 images (21 .png + 1 .jpg)
-- Extensions: [.jpg, .jpeg, .png, .bmp, .gif, .webp]
-
----
-
-## Phase 5: 文件监听 ⬜ TODO
-- [ ] src/core/file_watcher.py — watchdog 或 Qt 内置 QFileSystemWatcher
-
-## Phase 6: PyInstaller 打包 ⬜ TODO
-- [ ] build.bat 完善（图标嵌入、资源打包）
-- [ ] assets/icon.ico
-
----
+| Phase | 内容 | 状态 |
+|-------|------|------|
+| Phase 1 | Core modules (settings, image_library, wallpaper_manager, scheduler) | ✅ Complete |
+| Phase 2 | UI — narrow icon sidebar + preview card + gallery + top/bottom bars | ✅ Complete |
+| Phase 2.5 | Main integration (main.py startup chain) | ✅ Complete |
+| Phase 3 | Scheduler with 3 modes (daily, interval, manual) | ✅ Complete |
+| Phase 4 | Autostart registry (Windows HKCU) | ✅ Complete |
+| Phase 4.5 | UI Polish & mockup alignment | ✅ Complete (this session) |
+| Phase 5 | File Watcher (`src/core/file_watcher.py`) | ⬜ TODO |
+| Phase 6 | PyInstaller packaging (`build.bat`, icon.ico) | ⬜ TODO |
 
 ## Git History (master branch)
 
 ```
-d1e1fd3 feat(main,window,scheduler): 完整集成 Scheduler 到启动链路
-cee8642 fix(tests): test_set_and_get now uses tmp_config_dir fixture
-9df81dd rename: project folder to 'wallpace'
-ae4f25d fix(main,window): P0 — 修复 import 路径与窗口创建，应用可启动
-f76ecd6 feat: Wallpace v0.1 - Initial project scaffold
+<latest> feat(ui): add bottom status bar with library info  ← current working tree clean
+... d1e1fd3 ...
+... cee8642 ...
+... 9df81dd rename: project folder to 'wallpace'
+... ae4f25d fix(main,window): P0 — 修复 import 路径与窗口创建
+... f76ecd6 feat: Wallpace v0.1 - Initial project scaffold
 ```
 
-> Note: 当前可能有未推送的新 commit（Phase 4 开机自启相关）。先做 git status 确认。
-
-## 关键修复记录
-1. `theme.py` QSS 样式表改用 f-string 多行拼接，避免 heredoc 引号逃逸
-2. `sidebar.py` SidebarButton._base_style() 从 f-string 改为 `.format()`，解决 QSS `{}` 冲突
-3. `tray.py` 补充 QWidget 导入
-4. `window.py` 统一使用 `from src.core.*` 而非 `from core.*`
-5. `preview_card.py` 按钮只有文字，后续可加 QIcon
-6. **scheduler.py** `_do_daily_switch` → `_do_daily_timer` 命名统一（本次 session）
-7. **main.py** logging path 从 `ROOT / "logs"` 改为 `Path.home() / ".wallpace" / "logs"` 解决沙箱权限
-
-## 继续开发时必读
-
-### Import 路径约定
-- **core 模块用 `src.core.*`，app 模块用 `src.app.*`**（避免混用 `core.*` 和 `src.core.*`）
-- main.py 已处理 `sys.path.insert(0, str(ROOT))`
-
-### 环境
-- Python 3.13, PySide6 6.11.1 (LGPL)
-- 工作目录: `D:\my_project\wallpace`
-- 远程仓库: `https://github.com/HqJ-ban/Wallpace.git`
-
-### 运行命令
-```powershell
-cd D:\my_project\wallpace
-python -m pytest tests/ -v          # 全量测试
-python src/main.py                  # 普通启动（需显示窗口）
-python src/main.py --hidden         # 开机自启模式（隐藏主窗口）
-python src/main.py --test           # 仅运行 unittest 测试
-```
-
-### Next Tasks (优先级排序)
-1. **Git commit & push** — 确认 Phase 4 相关文件已提交并推送到 GitHub
-2. **Phase 5: 文件监听器** (`src/core/file_watcher.py`) — 检测新增/删除图片，自动刷新 library
-3. **Phase 6: PyInstaller 打包** (`build.bat`, icon.ico) — 生成单文件 .exe
-4. 非阻塞 UI polish: sidebar 按钮加图标, `_set_active_button` 联动
-
----
-
-# Wallpace 项目上下文 (续)
-
-## 当前进度 (2026-07-26)
-- **核心模块**: ✅ Phase 1-3 完成 — settings, image_library, wallpaper_manager, scheduler
-- **UI 模块**: ✅ sidebar.py 重写为 60px 窄侧边栏 + 图标按钮 + hover tooltip
-- **UI 组件**: ✅ PreviewCard 增加底部渐变叠加层（文件名+路径+索引）
-- **页面结构**: ✅ Info Grid (3 stat cards) + Gallery 水平滚动缩略图已添加
-- **Tests**: ✅ 41 passed, 1 skipped (sandbox permission errors are expected)
-- **Remote**: `https://github.com/HqJ-ban/Wallpace.git` (master branch)
+## 图片扫描配置
+- Config file: `~/.wallpace.json`
+- Source directory: `D:\my_project\source picture` — 22 images (21 .png + 1 .jpg)
+- Extensions: [.jpg, .jpeg, .png, .bmp, .gif, .webp]
 
 ## 待办事项 (优先级排序)
-1. **Bottom status bar** — 显示目录信息、通知状态、版本号
-2. **Settings slide-in panel** — 将设置页改为从右侧滑入的面板
-3. **Git commit & push** — 提交当前 UI  polish 变更
-4. **Phase 5: File Watcher** — 检测新增/删除图片，自动刷新 library
-5. **Phase 6: PyInstaller packaging** — 生成单文件 .exe
-6. **Sidebar icon polishing** — 改用 Qt SVG/Lucide 图标替代 Emoji 字符
 
-## 关键文件
-- `src/app/window.py` — MainWindow 主窗口构建
-- `src/app/sidebar.py` — 60px 窄侧边栏导航 + ActionButton
-- `src/app/widgets/preview_card.py` — 预览卡片组件（含 overlay）
-- `src/app/theme.py` — 粉蓝渐变主题
-- `D:/my_project/mockups/detail-view.html` — UI mockup 参考
+### UI Remaining
+1. **Settings slide-in panel** — 将设置页从 QStackedWidget 页面改为右侧滑入面板 (QFrame overlay with animation)
+2. **Gallery interaction** — 点击缩略图 → 更新预览卡片
+3. **Sidebar nav icons** — 考虑用 Qt Icon/FontAwesome 替代 Emoji 字符
+
+### Feature Modules
+4. **Phase 5: File Watcher** (`src/core/file_watcher.py`) — 检测新增/删除图片，自动刷新 library
+5. **Phase 6: PyInstaller packaging** — 生成单文件 .exe
+
+### Housekeeping
+6. **Git push** — 需要新的 GitHub PAT token（之前的可能已过期）
+7. 清理 `src/app/tray.py` 中未使用的 imports（如果有）
+
+## Tests
+- **63 passed, 1 skipped** (sandbox PermissionError skip is expected)
+- All core + UI import tests pass
+
+## Key Files
+- [src/app/window.py](D:\my_project\wallpace\src\app\window.py) — MainWindow
+- [src/app/sidebar.py](D:\my_project\wallpace\src\app\sidebar.py) — 60px icon sidebar
+- [src/app/widgets/preview_card.py](D:\my_project\wallpace\src\app\widgets\preview_card.py) — Preview widget
+- [src/app/theme.py](D:\my_project\wallpace\src\app\theme.py) — Theme/QSS engine
+- [src/main.py](D:\my_project\wallpace\src\main.py) — Entry point
+- [D:/my_project/mockups/detail-view.html](D:/my_project/mockups/detail-view.html) — Visual reference
+
+## Import Conventions
+- Core modules: `from src.core.*`
+- App modules: `from src.app.*`
+- main.py handles `sys.path.insert(0, str(ROOT))`
+
+## Running Commands
+```powershell
+cd D:\my_project\wallpace
+python -m pytest tests/ --basetemp=C:/tmp/wallpace-pytest-temp -v   # tests
+python src/main.py                                                   # visible window
+python src/main.py --hidden                                          # tray mode (hidden window)
+python src/main.py --test                                            # unittest only
+```
+
+## Environment
+- Python 3.13, PySide6 6.11.1 (LGPL)
+- Working dir: `D:\my_project\wallpace`
+- Remote: `https://github.com/HqJ-ban/Wallpace.git`
+- Sandbox: .git is read-only; git commands need escalation

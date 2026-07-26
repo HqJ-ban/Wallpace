@@ -50,7 +50,7 @@ class PreviewCardWidget(QWidget):
 
         # === Preview image with overlay frame ===
         self.preview_frame = QWidget()
-        self.preview_frame.setFixedHeight(300)
+        self.preview_frame.setFixedHeight(340)
         self.preview_frame.setStyleSheet("background-color: transparent;")
         preview_layout = QVBoxLayout(self.preview_frame)
         preview_layout.setContentsMargins(0, 0, 0, 0)
@@ -60,8 +60,8 @@ class PreviewCardWidget(QWidget):
         self.preview_label = QLabel("(暂无预览)")
         self.preview_label.setObjectName("preview-image")
         self.preview_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.preview_label.setMinimumSize(480, 300)
-        self.preview_label.setMaximumSize(480, 300)
+        self.preview_label.setMinimumSize(480, 340)
+        self.preview_label.setMaximumSize(480, 340)
         preview_layout.addWidget(self.preview_label, alignment=Qt.AlignmentFlag.AlignCenter)
 
         # Bottom overlay (gradient + text info)
@@ -70,39 +70,48 @@ class PreviewCardWidget(QWidget):
 
         layout.addWidget(self.preview_frame, alignment=Qt.AlignmentFlag.AlignCenter)
 
-        # === Action buttons ===
+        # === Action buttons (mockup-style: large, centered, with icon) ===
         btn_layout = QHBoxLayout()
-        btn_layout.addStretch()
+        btn_layout.setContentsMargins(0, 4, 0, 0)
+        btn_layout.setSpacing(12)
 
-        btn_skip = QPushButton("跳过")
+        btn_skip = QPushButton("跳过  ·  不喜")
         btn_skip.clicked.connect(self.skip_clicked)
+        btn_skip.setFixedHeight(36)
         btn_skip.setStyleSheet(
-            "QPushButton { border: none; border-radius: 10px; padding: 8px 18px; "
-            "background-color: transparent; color: #9ca3af; font-size: 13px; } "
-            "QPushButton:hover { background-color: #fdf2f8; color: #ec4899; }"
+            "QPushButton { "
+            "border: 2px solid #ffcdd2; border-radius: 10px; "
+            "padding: 8px 16px; "
+            "background-color: white; color: #c62828; "
+            "font-size: 13px; font-weight: 600; } "
+            "QPushButton:hover { background-color: #ffebee; }"
         )
 
-        btn_favorite = QPushButton("收藏")
+        btn_favorite = QPushButton("收藏  ·  到精选")
         btn_favorite.clicked.connect(self.favorite_clicked)
+        btn_favorite.setFixedHeight(36)
         btn_favorite.setStyleSheet(
-            "QPushButton { border: none; border-radius: 10px; padding: 8px 18px; "
-            "background-color: transparent; color: #9ca3af; font-size: 13px; } "
-            "QPushButton:hover { background-color: #dbeafe; color: #6366f1; }"
+            "QPushButton { "
+            "border: 2px solid #c8e6c9; border-radius: 10px; "
+            "padding: 8px 16px; "
+            "background-color: white; color: #4caf50; "
+            "font-size: 13px; font-weight: 600; } "
+            "QPushButton:hover { background-color: #e8f5e9; }"
         )
 
         btn_switch = QPushButton("换一张")
         btn_switch.setStyleSheet(
             "QPushButton { "
-            "border: none; border-radius: 12px; padding: 10px 32px; "
+            "border: none; border-radius: 10px; padding: 8px 32px; "
             "font-size: 14px; font-weight: 600; color: white; "
             "background: qlineargradient(x1:0, y1:0, x2:1, y2:0, "
-            "stop:0 #ec4899, stop:1 #6366f1); } "
+            "stop:0 #5c6bc0, stop:1 #e91e63); } "
             "QPushButton:hover { "
             "background: qlineargradient(x1:0, y1:0, x2:1, y2:0, "
-            "stop:0 #f472b6, stop:1:818cf8); } "
+            "stop:0 #7986cb, stop:1 #f06292); } "
             "QPushButton:pressed { "
             "background: qlineargradient(x1:0, y1:0, x2:1, y2:0, "
-            "stop:0 #db2777, stop:1:4f46e5); }"
+            "stop:0 #3f51b5, stop:1 #c2185b); }"
         )
         btn_switch.clicked.connect(self.switch_clicked)
         btn_switch.setMinimumWidth(96)
@@ -120,13 +129,15 @@ class PreviewCardWidget(QWidget):
         overlay_layout = QVBoxLayout(self.overlay_frame)
         overlay_layout.setContentsMargins(0, 0, 0, 0)
 
-        # Gradient background
+        # Gradient background — smooth fade from transparent to dark
         self.overlay_frame.setStyleSheet(
             "QWidget { "
-            f"background: qlineargradient(x1:0, y1:0, x2:0, y2:1, "
-            "stop:0 rgba(255,255,255,0), stop:1 rgba(0,0,0,0.6)); "
-            "border-top: 1px solid rgba(255,255,255,0.1);"
-            "}"
+            "background: qlineargradient("
+            "x1:0, y1:0, x2:0, y2:1, "
+            "stop:0 rgba(0,0,0,0), "
+            "stop:0.5 rgba(0,0,0,0.2), "
+            "stop:1 rgba(0,0,0,0.6)); "
+            "border: none; }"
         )
 
         # File name label
@@ -147,13 +158,12 @@ class PreviewCardWidget(QWidget):
         info_row.addStretch()
 
         self.index_label = QLabel("")
-        self.index_label.setObjectName("badge")
+        self.index_label.setObjectName("index-badge")
         self.index_label.setStyleSheet(
-            "QLabel#badge { "
-            "background-color: rgba(236, 72, 153, 0.8); "
-            "color: white; font-size: 11px; "
-            "padding: 2px 8px; border-radius: 10px;"
-            "}"
+            "QLabel#index-badge { "
+            "color: white; font-size: 18px; font-weight: 700; "
+            "background-color: rgba(255,255,255,0.15); "
+            "padding: 4px 12px; border-radius: 8px; }"
         )
         info_row.addWidget(self.index_label)
 

@@ -105,12 +105,12 @@ class MainWindow(QMainWindow):
         )
         top_bar_layout.addWidget(self._top_title)
 
-        self._top_status = QLabel("")
+        self._top_status = QLabel("● 未启动")
         self._top_status.setStyleSheet(
             "color: rgba(255,255,255,0.7); font-size: 12px;"
         )
-        top_bar_layout.addStretch()
         top_bar_layout.addWidget(self._top_status)
+        top_bar_layout.setStretchFactor(self._top_status, 0)
 
         # === 侧边栏 + 内容区 ===
         body_layout = QHBoxLayout()
@@ -246,17 +246,17 @@ class MainWindow(QMainWindow):
         info_layout.setContentsMargins(24, 8, 24, 8)
         info_layout.setSpacing(12)
 
-        self._method_card = self._make_info_card("切换方式", str(self._settings.get("switch_mode", "daily_random")))
+        self._method_card = self._make_info_card("切换方式", "每日随机")
         info_layout.addWidget(self._method_card)
 
         info_layout.addSpacing(12)
 
-        self._next_time_card = self._make_info_card("下次切换", "--:--")
+        self._next_time_card = self._make_info_card("下次切换", "明天 08:00", highlight=True)
         info_layout.addWidget(self._next_time_card)
 
         info_layout.addSpacing(12)
 
-        self._count_card = self._make_info_card("图片总数", "0")
+        self._count_card = self._make_info_card("图片总数", str(self._library.total_count))
         info_layout.addWidget(self._count_card)
 
         layout.addWidget(info_grid)
@@ -290,13 +290,20 @@ class MainWindow(QMainWindow):
 
         return page
 
-    def _make_info_card(self, label, value):
+    def _make_info_card(self, label, value, highlight=False):
         card = QFrame()
         card.setObjectName("info-card")
-        card.setFixedWidth(160)
-        card.setStyleSheet(
-            "QFrame#info-card { background-color: #fafafa; border-radius: 10px; padding: 10px; } " "QFrame#info-card.highlight { background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #fce4ec, stop:1 #bbdefb); }"
-        )
+        if highlight:
+            card.setProperty("highlight", "true")
+            card.setStyleSheet(
+                "QFrame#info-card { background-color: transparent; border-radius: 10px; padding: 10px; border: none; } "
+                "QFrame#info-card[highlight='true'] { "
+                "background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #fce4ec, stop:1 #bbdefb); }"
+            )
+        else:
+            card.setStyleSheet(
+                "QFrame#info-card { background-color: #fafafa; border-radius: 10px; padding: 10px; border: 1px solid #eeeeee; }"
+            )
         card_layout = QVBoxLayout(card)
         card_layout.setContentsMargins(10, 8, 10, 8)
 
@@ -457,8 +464,18 @@ class MainWindow(QMainWindow):
         """处理用户点击'收藏'。"""
         if not self._preview_card._current_path:
             return
-        self._library.favorite(self._preview_card._current_path)
-        logger.info("已收藏: %s", self._preview_card._current_path)
+        is_new_fav = self._library.favorite(self._preview_card._current_path)
+        if is_new_fav:
+            logger.info("已收藏: %s", self._preview_card._current_path)
+        else:
+            # It was already in fav_set (idempotent), try unfavorite
+            self._library.unfavorite(self._preview_card._current_path)
+            logger.info("取消收藏: %s", self._preview_card._current_path)
+        # Update sidebar star icon
+        if hasattr(self, "_sidebar") and self._sidebar:
+            is_favorited = self._preview_card._current_path in self._library._favorite_set
+            if len(getattr(self._sidebar, "_action_buttons", [])) >= 3:
+                self._sidebar._action_buttons[2].set_active(is_favorited)
 
     @Slot(str)
     def on_wallpaper_switched(self, path: str) -> None:
@@ -533,8 +550,29 @@ class MainWindow(QMainWindow):
 
             self._preview_card.clear_preview()
 
-        # Update bottom status bar
+        # Update bottom and top status bars
         self.update_bottom_bar()
+        self.update_top_status()
+
+    def update_top_status(self) -> None:
+        """Update the top bar status badge based on scheduler state."""
+        if self._scheduler is None:
+            self._top_status.setText("● 未启动")
+            return
+        mode = self._scheduler.mode
+        if not self._scheduler.is_active:
+            self._top_status.setText("● 已暂停")
+        elif mode == "daily_random":
+            next_switch = self._scheduler.get_next_switch_time()
+            if next_switch:
+                self._top_status.setText(f"● 已启用 · 明天 {next_switch.strftime('%H:%M')} 切换")
+            else:
+                self._top_status.setText("● 已启用 · 明天自动切换")
+        elif mode == "interval_minutes":
+            mins = self._scheduler.interval_minutes or 60
+            self._top_status.setText(f"● 已启用 · 每 {mins} 分钟")
+        elif mode == "manual":
+            self._top_status.setText("● 已启用 · 手动模式")
 
     def update_bottom_bar(self) -> None:
         """Update bottom status bar with current library info."""
