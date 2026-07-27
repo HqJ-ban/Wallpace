@@ -12,6 +12,9 @@ from typing import TYPE_CHECKING, Optional
 from PySide6.QtCore import Qt, Signal, Slot
 from PySide6.QtGui import QIcon, QPixmap
 from PySide6.QtWidgets import (
+    QComboBox,
+    QFileDialog,
+    QLineEdit,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -212,9 +215,9 @@ class MainWindow(QMainWindow):
         self._sidebar = SidebarNavigation(
             stacked=self._stacked,
             on_settings_open=self.open_settings,
-            on_action_switch=self.request_switch,
+            on_action_switch=self.request_switch,  # 虽然按钮被移除，但保留以防未来使用
             on_action_skip=self._handle_skip,
-            on_action_favorite=lambda: None,  # handled via preview_card favorite signal
+            on_action_favorite=self._handle_favorite,  # 连接到收藏处理
         )
         body_layout.insertWidget(0, self._sidebar)
 
@@ -420,6 +423,7 @@ class MainWindow(QMainWindow):
         return page
 
     def _build_settings_page(self) -> QWidget:
+        """构建设置页面，包含文件夹添加和模式切换功能。"""
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(24, 16, 24, 16)
@@ -440,7 +444,7 @@ class MainWindow(QMainWindow):
         group_layout.addWidget(dir_label)
 
         dirs = self._settings.get("image_directories", [])
-        dirs_text = ", ".join(dirs) if dirs else "未配置（在设置中配置）"
+        dirs_text = ", ".join(dirs) if dirs else "未配置（点击添加）"
         info_dirs = QLabel(dirs_text)
         info_dirs.setWordWrap(True)
         info_dirs.setStyleSheet(
@@ -454,8 +458,13 @@ class MainWindow(QMainWindow):
         btn_add.setStyleSheet(
             "QPushButton { padding: 6px 16px; border-radius: 6px; }"
         )
-        btn_add.clicked.connect(lambda: logger.info("添加文件夹（待实现）"))
+        btn_add.clicked.connect(self._add_directory)
         group_layout.addWidget(btn_add)
+
+        # 显示当前配置的图片目录数量
+        self._dir_count_label = QLabel(f"共 {len(dirs)} 个目录")
+        self._dir_count_label.setStyleSheet("font-size: 11px; color: #9e9e9e; margin-top: 4px;")
+        group_layout.addWidget(self._dir_count_label)
 
         layout.addWidget(group_images)
         layout.addSpacing(16)
@@ -470,31 +479,118 @@ class MainWindow(QMainWindow):
         mode_label.setObjectName("sub-title")
         switch_layout.addWidget(mode_label)
 
-        mode_val = self._settings.get("switch_mode", "daily_random")
-        mode_info = QLabel(f"当前: {mode_val}")
-        mode_info.setStyleSheet(
-            f"background-color: {COLOR_GRAY_100}; "
-            "border-radius: 6px; "
-            "padding: 8px; font-size: 12px;"
-        )
-        switch_layout.addWidget(mode_info)
+        # 模式选择器
+        self._mode_combo = QComboBox()
+        self._mode_combo.addItems(["每日随机", "间隔时间", "手动"])
+        current_mode = self._settings.get("switch_mode", "daily_random")
+        # 映射内部模式名到显示文本
+        mode_display_map = {
+            "daily_random": "每日随机",
+            "interval_minutes": "间隔时间",
+            "manual": "手动",
+        }
+        display_text = mode_display_map.get(current_mode, "每日随机")
+        self._mode_combo.setCurrentText(display_text)
+        self._mode_combo.currentTextChanged.connect(self._on_mode_changed)
+        switch_layout.addWidget(self._mode_combo)
 
-        # 如果是 interval_minutes 模式，显示间隔时间
-        if mode_val == "interval_minutes":
-            interval = self._settings.get("interval_minutes")
-            if interval:
-                interval_info = QLabel(f"间隔: {interval} 分钟")
-                interval_info.setStyleSheet(
-                    f"background-color: {COLOR_GRAY_100}; "
-                    "border-radius: 6px; "
-                    "padding: 8px; font-size: 12px;"
-                )
-                switch_layout.addWidget(interval_info)
+        # 显示当前模式描述
+        self._mode_desc = QLabel("")
+        self._mode_desc.setStyleSheet("font-size: 12px; color: #424242; margin-top: 4px;")
+        self._update_mode_description(current_mode)
+        switch_layout.addWidget(self._mode_desc)
+
+        # 间隔时间输入框（仅间隔模式可见）
+        self._interval_group = QFrame()
+        interval_layout = QVBoxLayout(self._interval_group)
+        interval_layout.setContentsMargins(0, 4, 0, 0)
+        interval_label = QLabel("间隔时间（分钟）:")
+        interval_label.setStyleSheet("font-size: 12px;")
+        self._interval_input = QLineEdit()
+        self._interval_input.setPlaceholderText("例如：30")
+        self._interval_input.setMaximumWidth(100)
+        interval_layout.addWidget(interval_label)
+        interval_layout.addWidget(self._interval_input)
+        self._interval_group.setVisible(False)
+        switch_layout.addWidget(self._interval_group)
 
         layout.addWidget(group_switch)
         layout.addStretch()
 
         return page
+
+    # ===== 设置页面的辅助方法 =====
+
+    def _add_directory(self) -> None:
+        """打开文件夹选择对话框，添加到图片目录列表。"""
+        folder = QFileDialog.getExistingDirectory(
+            self, "选择图片文件夹", ""
+        )
+        if folder:
+            dirs = self._settings.get("image_directories", [])
+            if folder not in dirs:
+                dirs.append(folder)
+                self._settings.set("image_directories", dirs)
+                self._library.scan()
+                self._refresh_gallery()
+                self._update_settings_page_display()
+                logger.info("已添加图片目录: %s", folder)
+
+    def _on_mode_changed(self, text: str) -> None:
+        """处理模式切换。"""
+        mode_display_map = {
+            "daily_random": "每日随机",
+            "interval_minutes": "间隔时间",
+            "manual": "手动",
+        }
+        reverse_mode_map = {v: k for k, v in mode_display_map.items()}
+        internal_mode = reverse_mode_map.get(text, "daily_random")
+
+        # 保存模式到 settings
+        self._settings.set("switch_mode", internal_mode)
+
+        # 如果是 interval_minutes 模式，处理间隔值
+        if internal_mode == "interval_minutes":
+            try:
+                interval_val = int(self._interval_input.text()) if self._interval_input.text() else None
+                if interval_val is None or interval_val <= 0:
+                    interval_val = 60
+                self._settings.set("interval_minutes", interval_val)
+                if self._scheduler:
+                    self._scheduler._interval_minutes = interval_val
+            except (ValueError, AttributeError):
+                self._settings.set("interval_minutes", 60)
+                if self._scheduler:
+                    self._scheduler._interval_minutes = 60
+            self._interval_group.setVisible(True)
+        else:
+            self._interval_group.setVisible(False)
+
+        # 管理调度器
+        if self._scheduler is not None:
+            if self._scheduler.is_running:
+                self._scheduler.stop()
+            self._scheduler.mode = internal_mode
+            if internal_mode != "manual" and not self._scheduler.is_running:
+                self._scheduler.start(on_switch=self.on_wallpaper_switched)
+
+        self._update_mode_description(internal_mode)
+        self._update_settings_page_display()
+
+    def _update_mode_description(self, mode: str) -> None:
+        """更新模式描述标签的文字。"""
+        descriptions = {
+            "daily_random": "每天指定时间随机切换一张壁纸",
+            "interval_minutes": "每隔设定的时间自动切换",
+            "manual": "只响应手动切换操作，无自动切换",
+        }
+        self._mode_desc.setText(descriptions.get(mode, ""))
+
+    def _update_settings_page_display(self) -> None:
+        """更新设置页面中显示的目录计数等信息。"""
+        dirs = self._settings.get("image_directories", [])
+        if hasattr(self, '_dir_count_label'):
+            self._dir_count_label.setText(f"共 {len(dirs)} 个目录")
 
     # ===== 业务操作 =====
 

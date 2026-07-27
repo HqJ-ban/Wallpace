@@ -193,8 +193,6 @@ class SidebarNavigation(QWidget):
     ]
 
     ACTION_ITEMS = [
-        ("↻", "↻", "切换壁纸", "switch"),       # Rotate — switch wallpaper
-        ("⤴", "⏭", "跳过当前", "skip"),         # Skip — skip current image
         ("☆", "★", "收藏", "favorite"),          # Star unfilled -> filled
     ]
 
