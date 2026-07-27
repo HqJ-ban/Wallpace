@@ -30,11 +30,73 @@ if TYPE_CHECKING:
     from src.core.wallpaper_manager import WallpaperManager
 
 from src.app.sidebar import SidebarNavigation
-from src.app.theme import COLOR_BLUE_DARK, COLOR_GRAY_50, COLOR_GRAY_800, COLOR_PINK_LIGHT, COLOR_BLUE_LIGHT, COLOR_GRAY_100, ThemeManager
+from src.app.theme import (
+    COLOR_BLUE_DARK,
+    COLOR_GRAY_100,
+    COLOR_GRAY_50,
+    COLOR_GRAY_800,
+    COLOR_PINK_LIGHT,
+    COLOR_BLUE_LIGHT,
+    ThemeManager,
+)
 from src.app.tray import TrayIcon
 from src.app.widgets.preview_card import PreviewCardWidget
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Internal helper: clickable gallery thumbnail widget
+# ---------------------------------------------------------------------------
+
+
+class _GalleryThumbWidget(QLabel):
+    """可点击的图片库缩略图，支持高亮当前选中项。"""
+
+    clicked = Signal(str)  # emits image path on click
+
+    def __init__(
+        self,
+        image_path: str,
+        is_current: bool = False,
+        parent: Optional[QWidget] = None,
+    ) -> None:
+        super().__init__(parent)
+        self._image_path = image_path
+        self._is_current = is_current
+        self.setFixedSize(80, 60)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._load_pixmap()
+        self._apply_style()
+
+    def _load_pixmap(self) -> None:
+        pixmap = QPixmap(self._image_path)
+        if not pixmap.isNull():
+            scaled = pixmap.scaled(
+                80,
+                60,
+                Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+            self.setPixmap(scaled)
+
+    def _apply_style(self) -> None:
+        border_color = "#ec4899" if self._is_current else "#eeeeee"
+        self.setStyleSheet(
+            "QLabel { "
+            f"border-radius: 6px; background-color: #f5f5f5; "
+            f"border: 2px solid {border_color}; "
+            "}"
+        )
+
+    def set_is_current(self, current: bool) -> None:
+        self._is_current = current
+        self._apply_style()
+
+    def mousePressEvent(self, event) -> None:  # noqa: ANN001
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.clicked.emit(self._image_path)
+        super().mousePressEvent(event)
 
 
 class MainWindow(QMainWindow):
@@ -238,7 +300,6 @@ class MainWindow(QMainWindow):
         scroll_scroll_layout.addWidget(self._preview_card)
         layout.addWidget(scroll, stretch=1)
 
-
         # === Info Grid (3 stat cards) ===
         info_grid = QFrame()
         info_grid.setObjectName("info_grid")
@@ -251,16 +312,19 @@ class MainWindow(QMainWindow):
 
         info_layout.addSpacing(12)
 
-        self._next_time_card = self._make_info_card("下次切换", "明天 08:00", highlight=True)
+        self._next_time_card = self._make_info_card(
+            "下次切换", "明天 08:00", highlight=True
+        )
         info_layout.addWidget(self._next_time_card)
 
         info_layout.addSpacing(12)
 
-        self._count_card = self._make_info_card("图片总数", str(self._library.total_count))
+        self._count_card = self._make_info_card(
+            "图片总数", str(self._library.total_count)
+        )
         info_layout.addWidget(self._count_card)
 
         layout.addWidget(info_grid)
-
 
         # === Gallery Horizontal Scroll Section ===
         gallery_section = QFrame()
@@ -276,7 +340,9 @@ class MainWindow(QMainWindow):
         # Horizontal scroll area for thumbnails
         self._gallery_scroll = QScrollArea()
         self._gallery_scroll.setFixedHeight(100)
-        self._gallery_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._gallery_scroll.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
         self._gallery_scroll.setWidgetResizable(True)
         self._gallery_content = QWidget()
         self._gallery_layout = QHBoxLayout(self._gallery_content)
@@ -287,10 +353,9 @@ class MainWindow(QMainWindow):
 
         layout.addWidget(gallery_section)
 
-
         return page
 
-    def _make_info_card(self, label, value, highlight=False):
+    def _make_info_card(self, label: str, value: str, highlight: bool = False) -> QFrame:
         card = QFrame()
         card.setObjectName("info-card")
         if highlight:
@@ -510,10 +575,8 @@ class MainWindow(QMainWindow):
         self._current_image_index = index
         self._preview_card.update_preview(path, index, self._library.total_count)
 
-
         file_name = Path(path).stem
         self._tray.setToolTip(f"Wallpace -- {file_name}")
-
 
     def _on_gallery_click(self, image_path: str) -> None:
         """User clicked a gallery thumbnail - update preview and set as wallpaper."""
@@ -529,7 +592,6 @@ class MainWindow(QMainWindow):
         except Exception:
             logger.exception("画廊点击处理失败")
 
-
     def _refresh_gallery(self) -> None:
         """刷新扫描并更新 UI。"""
         images = self._library.scan()
@@ -539,8 +601,8 @@ class MainWindow(QMainWindow):
             logger.info("刷新图片库: %d 张", len(images))
             self._refresh_gallery_thumbnails()
         else:
+            logger.info("未发现可用图片")
 
-            pass
     def _refresh_gallery_thumbnails(self) -> None:
         """Populate gallery horizontal scroll with thumbnails."""
         # Clear existing widgets
@@ -550,23 +612,14 @@ class MainWindow(QMainWindow):
                 widget.deleteLater()
 
         images = self._library.list_available()
-        current_path = getattr(self._preview_card, '_current_path', '')
+        current_path = getattr(self._preview_card, "_current_path", "")
         for img_path in images[:20]:  # Show first 20
-            lbl = QLabel()
-            lbl.setFixedSize(80, 60)
-            pixmap = QPixmap(img_path)
-            if not pixmap.isNull():
-                scaled = pixmap.scaled(80, 60, Qt.AspectRatioMode.KeepAspectRatioByExpanding, Qt.TransformationMode.SmoothTransformation)
-                lbl.setPixmap(scaled)
-            lbl.setStyleSheet(
-                "QLabel { border-radius: 6px; background-color: #f5f5f5; border: 1px solid #eeeeee; }"
-            )
             thumb = _GalleryThumbWidget(img_path, is_current=(img_path == current_path))
             thumb.clicked.connect(lambda p=img_path: self._on_gallery_click(p))
             self._gallery_layout.addWidget(thumb)
 
-
         self._gallery_items = images[:20]  # track for highlight updates
+
         # Update bottom and top status bars
         self.update_bottom_bar()
         self.update_top_status()
@@ -582,7 +635,9 @@ class MainWindow(QMainWindow):
         elif mode == "daily_random":
             next_switch = self._scheduler.get_next_switch_time()
             if next_switch:
-                self._top_status.setText(f"● 已启用 · 明天 {next_switch.strftime('%H:%M')} 切换")
+                self._top_status.setText(
+                    f"● 已启用 · 明天 {next_switch.strftime('%H:%M')} 切换"
+                )
             else:
                 self._top_status.setText("● 已启用 · 明天自动切换")
         elif mode == "interval_minutes":
@@ -598,7 +653,6 @@ class MainWindow(QMainWindow):
             if isinstance(widget, _GalleryThumbWidget):
                 widget.set_is_current(widget._image_path == current_path)
 
-
     def update_bottom_bar(self) -> None:
         """Update bottom status bar with current library info."""
         images = self._library.list_available()
@@ -608,12 +662,12 @@ class MainWindow(QMainWindow):
         enabled = "已启用" if self._scheduler and self._scheduler.is_active else "已暂停"
         icon_folder = "\U0001f4c2"  # 📂 folder
         self._bottom_source_label.setText(
-            icon_folder + " " + dir_text + " (" + str(len(images)) + "/" + str(self._library.total_count) + ")"
+            f"{icon_folder} {dir_text} ({len(images)}/{self._library.total_count})"
         )
-        star_icon = chr(0x2605)
-        bell_icon = chr(0x1f441)
-        self._bottom_fav_count.setText(star_icon + " " + str(fav_count))
-        self._bottom_notifier_label.setText(bell_icon + " " + enabled)
+        star_icon = "★"  # ★
+        bell_icon = "\U0001f514"  # 🔔 bell
+        self._bottom_fav_count.setText(f"{star_icon} {fav_count}")
+        self._bottom_notifier_label.setText(f"{bell_icon} {enabled}")
 
     def open_settings(self) -> None:
         """切换到设置页面。"""
@@ -635,7 +689,7 @@ class MainWindow(QMainWindow):
         return now.strftime("%Y年%m月%d日")
 
     def closeEvent(self, event) -> None:
-        """托盘图标清理"""
+        """托盘图标清理。"""
         super().closeEvent(event)
         if hasattr(self, "_tray") and self._tray is not None:
             self._tray.setVisible(False)

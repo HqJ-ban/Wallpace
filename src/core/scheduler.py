@@ -54,7 +54,6 @@ class Scheduler:
 
         # PySide6 QTimer 实例
         self._timer: Optional["QTimer"] = None
-        self._next_daily_timer: Optional["QTimer"] = None
         self._on_switch: Optional[Callable[[str], None]] = None
         self._library: Optional["ImageLibrary"] = None
         self._wallpaper_manager: Optional["WallpaperManager"] = None

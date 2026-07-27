@@ -146,9 +146,8 @@ class Settings:
             errors.append("'image_directories' 必须是列表")
         else:
             for d in dirs:
-                p = Path(d) if isinstance(d, str) else None
-                if p is not None and not p.is_dir():
-                    errors.append(f"'{d}' 不是一个有效的文件夹")
+                if not isinstance(d, str) or not d.strip():
+                    errors.append(f"'image_directories' 中的路径不能为空字符串")
 
         # --- switch_mode ---
         if mode not in VALID_SWITCH_MODES:

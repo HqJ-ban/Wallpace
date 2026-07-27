@@ -3,10 +3,8 @@
 import logging
 from typing import TYPE_CHECKING, Optional
 
-from PySide6.QtWidgets import QMenu, QSystemTrayIcon, QWidget
-
 from PySide6.QtGui import QAction
-from PySide6.QtWidgets import QMenu, QSystemTrayIcon
+from PySide6.QtWidgets import QMenu, QSystemTrayIcon, QWidget
 
 if TYPE_CHECKING:
     from src.app.window import MainWindow

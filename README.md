@@ -1,8 +1,8 @@
-# Desktop Wallpaper Changer (Wallpace)
+# Wallpace — 桌面壁纸自动切换器
 
 ## 项目概览
 
-一个运行在 Windows 上的壁纸自动切换桌面小软件。用户配置图片库文件夹路径后，程序自动扫描并每天随机选一张设为系统壁纸。支持手动切换、跳过不喜欢、自定义间隔等特性。
+一个运行在 Windows 上的壁纸自动切换桌面小工具。用户配置图片库文件夹路径后，程序自动扫描并每天随机选一张设为系统壁纸。支持手动切换、跳过不喜欢、自定义间隔等特性。
 
 **技术栈：** Python 3.13 + PySide6 (LGPL)
 **目标平台：** Windows 10/11
@@ -12,62 +12,68 @@
 ## 目录结构
 
 ```
-Desktop_wallpaper/
-├── README.md                    ← 本文件（项目总纲 + Obsidian 指引）
-├── .superpowers/                ← brainstorm 草图与设计文档（可忽略）
-│   └── brainstorming/
+wallpace/
+├── README.md                    ← 本文件（项目总纲）
 ├── docs/                        ← 项目开发文档集
-│   ├── superpowers/
-│   │   └── specs/               ← 设计规范（brainstorming 产出）
 │   ├── architecture.md          ← 架构设计文档
 │   ├── api-design.md            ← API 设计文档
 │   ├── dev-standards.md         ← 开发执行标准
-│   └── changelog.md             ← 更新日志
+│   └── implementation-plan.md   ← 实施计划
 ├── src/                         ← 源代码
 │   ├── main.py                  ← 入口点
-│   ├── app/                     ← 应用模块
+│   ├── __init__.py              ← 包元数据 (__version__)
+│   ├── app/                     ← 应用模块 (GUI)
 │   │   ├── __init__.py
 │   │   ├── window.py            ← 主窗口
+│   │   ├── sidebar.py           ← 窄图标侧边栏导航
 │   │   ├── tray.py              ← 系统托盘
-│   │   └── widgets/             ← UI 组件
+│   │   ├── theme.py             ← 粉蓝渐变 QSS 主题引擎
+│   │   └── widgets/
+│   │       ├── __init__.py
+│   │       └── preview_card.py  ← 大图预览卡片组件
 │   ├── core/                    ← 核心逻辑模块
-│   │   ├── __init__.py
-│   │   ├── wallpaper_manager.py ← 壁纸设置
+│   │   ├── settings.py          ← 配置管理 (.wallpace.json)
 │   │   ├── image_library.py     ← 图片库管理
 │   │   ├── scheduler.py         ← 定时调度器
-│   │   └── settings.py          ← 配置管理
-│   └── utils/                   ← 工具模块
-│       ├── __init__.py
-│       └── helpers.py
-├── tests/                       ← 测试代码
-│   ├── conftest.py
+│   │   ├── wallpaper_manager.py ← 壁纸设置 (Windows SPI API)
+│   │   └── autostart_registry.py← 开机自启 (HKCU 注册表)
+│   └── utils/                   ← 工具模块 (预留)
+│       └── __init__.py
+├── tests/                       ← pytest 单元测试
+│   ├── conftest.py              ← 共享 fixtures
+│   ├── test_settings.py
 │   ├── test_image_library.py
-│   └── test_wallpaper_manager.py
+│   ├── test_scheduler.py
+│   ├── test_wallpaper_manager.py
+│   └── test_autostart_registry.py
+├── dev-log/                     ← 每日开发记录
+├── logs/                        ← 运行时日志 (写入 ~/.wallpace/logs/)
+├── .wallpace.json               ← 用户配置文件 (可选, .gitignore)
 ├── requirements.txt             ← Python 依赖
-├── pyproject.toml               ← 项目元数据
+├── pyproject.toml               ← 项目元数据 (setuptools, entry point)
 └── build.bat                    ← 打包脚本 (PyInstaller)
 ```
 
 ---
 
-## 核心功能清单
+## 核心功能
 
-| #  | 功能                           | 优先级 | 状态      |
-| -- | ------------------------------ | ------ | --------- |
-| 1  | 配置图片库文件夹路径           | P0     | 📋 待开发 |
-| 2  | 自动扫描 JPG/PNG/WebP 图片     | P0     | 📋 待开发 |
-| 3  | 文件夹变更监听（热加载）       | P0     | 📋 待开发 |
-| 4  | 每日随机切换壁纸               | P0     | 📋 待开发 |
-| 5  | 手动触发"换一张"               | P0     | 📋 待开发 |
-| 6  | "不喜欢"跳过机制（不重复）     | P0     | 📋 待开发 |
-| 7  | 自定义时间间隔切换             | P1     | 📋 待开发 |
-| 8  | 多显示器统一设置               | P0     | 📋 待开发 |
-| 9  | 图标侧边栏导航 + 粉蓝渐变 UI   | P0     | 📋 待开发 |
-| 10 | 底部自定义栏（天气/日期/数量） | P1     | 📋 待开发 |
-| 11 | 系统托盘后台运行 + 右键菜单    | P0     | 📋 待开发 |
-| 12 | 设置面板（侧滑）               | P1     | 📋 待开发 |
-| 13 | 开机自启动                     | P1     | 📋 待开发 |
-| 14 | 预览图片库缩略图               | P1     | 📋 待开发 |
+| # | 功能 | 状态 |
+|---|------|------|
+| 1 | 配置图片库文件夹路径 (`settings.json`) | ✅ 完成 |
+| 2 | 自动扫描 JPG/PNG/WebP/BMP/GIF 图片 | ✅ 完成 |
+| 3 | 每日随机切换壁纸 | ✅ 完成 |
+| 4 | 手动触发"换一张" (侧边栏 / 按钮) | ✅ 完成 |
+| 5 | "不喜欢"跳过机制 (不重复) | ✅ 完成 |
+| 6 | 自定义时间间隔切换 | ✅ 完成 |
+| 7 | 收藏到精选列表 | ✅ 完成 |
+| 8 | 多显示器统一设置 (Windows API) | ✅ 完成 |
+| 9 | 图标侧边栏导航 + 粉蓝渐变 UI | ✅ 完成 |
+| 10 | 底部自定义栏（目录/日期/数量） | ✅ 完成 |
+| 11 | 系统托盘后台运行 + 右键菜单 | ✅ 完成 |
+| 12 | 开机自启动 (HKCU 注册表) | ✅ 完成 |
+| 13 | 图片库缩略图预览 + 点击设壁纸 | ✅ 完成 |
+| 14 | 文件夹变更监听 (watchdog) | 📋 待开发 |
 
 ---
 
@@ -76,9 +82,8 @@ Desktop_wallpaper/
 ### 环境准备
 
 ```bash
-cd D:\my_project\Desktop_wallpaper
 python -m venv .venv
-.venv\Scripts\activate
+.venv\Scripts\activate    # Windows
 pip install -r requirements.txt
 ```
 
@@ -86,6 +91,13 @@ pip install -r requirements.txt
 
 ```bash
 python src/main.py
+```
+
+### 运行测试
+
+```bash
+pytest tests/
+python src/main.py --test  # 使用 unittest 也可
 ```
 
 ### 打包发布
@@ -96,74 +108,32 @@ build.bat
 
 ---
 
-## 开发流程（Superpowers Brainstorming 产出）
+## 使用说明
 
-本项目基于 Superpowers 插件的 `brainstorming` 技能完成需求梳理。
+首次运行时，程序会在 CWD 下生成 `.wallpace.json` 配置文件（不存在则回退默认值）：
 
-| 步骤     | 说明                     | 输出文件                                                        |
-| -------- | ------------------------ | --------------------------------------------------------------- |
-| 需求分析 | 与用户确认 5 轮问答      | docs/superpowers/specs/2026-07-23-wallpaper-scheduler-design.md |
-| UI 草图  | 三个布局方向 A/B/C       | mockups/layout-options.html                                     |
-| 深化设计 | B 方案详细页面           | mockups/detail-view.html                                        |
-| 计划编写 | 接下来执行 writing-plans | docs/architecture.md                                            |
-| 执行开发 | 按优先级逐步实现         | src/ 目录下源码                                                 |
-
----
-
-## Obsidian 使用指引
-
-### 如何连接
-
-如果你的 Obsidian 安装了 **Templater** 或 **Dataview** 插件，可以将以下模板作为快捷入口：
-
-```
---{{dataview}}--
+```json
+{
+  "image_directories": ["D:\\my_pictures\\wallpaper"],
+  "switch_mode": "daily_random",
+  "daily_time": "08:00"
+}
 ```
 
-### 链接到各文档
+常用命令/快捷操作：
 
-| 文档         | 路径                            | 用途                               |
-| ------------ | ------------------------------- | ---------------------------------- |
-| 架构设计     | [[docs/architecture]]                                | 整体系统架构与模块划分             |
-| API 设计     | [[docs/api-design]]                                | 各模块接口定义                     |
-| 开发标准     | [[docs/dev-standards]]                                | 编码规范、命名约定、测试要求       |
-| 设计规范     | [[docs/superpowers/specs/*]]                                | brainstorming 产出的需求与设计文档 |
-| 更新日志     | [[docs/changelog]]                                | 版本变更记录                       |
-| 每日开发记录 | 根目录`dev-log/YYYY-MM-DD.md` | 当天完成事项与次日计划             |
-
-### 每日开发记录
-
-在根目录下创建 `dev-log/` 文件夹，每日自动生成一篇 Markdown 文件：
-
-```
-dev-log/
-├── 2026-07-23.md
-├── 2026-07-24.md
-└── ...
-```
-
-每篇记录模板：
-
-```markdown
-## 📅 {{date:YYYY-MM-DD}}
-
-### ✅ 今日完成
-- [ ] 
-
-### 📋 待办事项
-- [ ]
-
-### 💡 备注
--
-```
+- **托盘左键** — 手动切换一张
+- **托盘右键 → 暂停切换** — 停止自动调度
+- **侧边栏底部** — 切换 / 跳过 / 收藏 三个圆形按钮
+- **设置页面** — 查看当前配置的图片和切换模式
 
 ---
 
 ## 技术规范
 
-- **Python 版本：** 3.10+（本项目使用 3.13）
+- **Python 版本：** 3.10+ (本项目使用 3.13)
 - **UI 框架：** PySide6 >= 6.6
 - **样式语言：** QSS（Qt Style Sheets），粉蓝渐变主题
-- **配置格式：** JSON
+- **配置格式：** JSON (.wallpace.json)
 - **构建工具：** PyInstaller
 - **许可协议：** LGPL-2.1 (PySide6) + MIT (本项目代码)

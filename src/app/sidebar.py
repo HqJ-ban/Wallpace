@@ -7,7 +7,7 @@ action buttons (switch/skip/favorite) at bottom.
 import logging
 from typing import Callable, Dict, Optional
 
-from PySide6.QtCore import Qt, QRect, Signal
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QFont, QIcon, QPainter, QColor
 from PySide6.QtWidgets import (
     QFrame,
@@ -20,7 +20,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from src.app.theme import  COLOR_PINK_LIGHT
+from src.app.theme import COLOR_PINK_LIGHT
 
 logger = logging.getLogger(__name__)
 
@@ -193,9 +193,9 @@ class SidebarNavigation(QWidget):
     ]
 
     ACTION_ITEMS = [
-        ("↻", "↻", "切换壁纸"),       # Rotate — switch wallpaper
-        ("⤴", "⏭", "跳过当前"),       # Skip — skip current image
-        ("☆", "★", "收藏"),            # Star unfilled -> filled
+        ("↻", "↻", "切换壁纸", "switch"),       # Rotate — switch wallpaper
+        ("⤴", "⏭", "跳过当前", "skip"),         # Skip — skip current image
+        ("☆", "★", "收藏", "favorite"),          # Star unfilled -> filled
     ]
 
     def __init__(self, stacked: QStackedWidget,
@@ -249,8 +249,8 @@ class SidebarNavigation(QWidget):
 
         # === Action buttons (switch / skip / favorite) ===
         self._action_buttons = []  # track for toggle access
-        for icon_def, icon_act, tooltip in self.ACTION_ITEMS:
-            act_btn = ActionButton(icon_def, icon_act, tooltip, tooltip, self)
+        for icon_def, icon_act, tooltip, action_key in self.ACTION_ITEMS:
+            act_btn = ActionButton(icon_def, icon_act, tooltip, action_key, self)
             self._action_buttons.append(act_btn)
             act_btn.clicked.connect(self._handle_action)
             layout.addWidget(act_btn)
@@ -264,11 +264,11 @@ class SidebarNavigation(QWidget):
 
     def _handle_action(self, action_name: str) -> None:
         """Route action button clicks to callbacks."""
-        if action_name == "切换壁纸" and self._on_action_switch:
+        if action_name == "switch" and self._on_action_switch:
             self._on_action_switch()
-        elif action_name == "跳过当前" and self._on_action_skip:
+        elif action_name == "skip" and self._on_action_skip:
             self._on_action_skip()
-        elif action_name == "收藏" and self._on_action_favorite:
+        elif action_name == "favorite" and self._on_action_favorite:
             self._on_action_favorite()
 
     def set_favorite_state(self, state: bool) -> None:
