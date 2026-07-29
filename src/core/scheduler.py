@@ -164,6 +164,11 @@ class Scheduler:
     def is_paused(self) -> bool:
         return self._is_running and self._is_paused
 
+    @property
+    def interval_minutes(self) -> Optional[int]:
+        """返回当前设置的间隔分钟数（仅 interval 模式有意义）。"""
+        return self._interval_minutes
+
     # ==================== 私有方法 ====================
 
     def _parse_time(self, time_str: str) -> "dt_time":

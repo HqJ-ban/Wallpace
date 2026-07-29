@@ -49,5 +49,14 @@ tests/.coverage
 htmlcov/
 .pytest_cache/
 
+# Observability notes
+.obsidian/
+dev-log/
+
+# AI / IDE workspace files
+.agents/
+.codex/
+CODEX_SESSION.md
+
 # Mockups (optional, can keep if needed)
 # mockups/

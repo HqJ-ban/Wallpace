@@ -137,9 +137,11 @@ class MainWindow(QMainWindow):
         self._scheduler = scheduler
 
         self._current_image_index = 0
+        self._clock_timer: Optional["QTimer"] = None
 
         self._setup_window()
         self._setup_ui()
+        self._start_clock_timer()
 
     def _setup_window(self) -> None:
         """窗口基本属性。"""
@@ -289,6 +291,26 @@ class MainWindow(QMainWindow):
 
         layout.addLayout(title_row)
 
+        # 空状态引导提示（默认隐藏）
+        self._empty_guide = QLabel(
+            "📂 还没有添加图片文件夹\n"
+            "点击左侧「设置」→「添加文件夹」来选择壁纸文件夹"
+        )
+        self._empty_guide.setObjectName("empty_guide")
+        self._empty_guide.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._empty_guide.setWordWrap(True)
+        self._empty_guide.setStyleSheet(
+            "QLabel#empty_guide { "
+            "background-color: #fafafa; "
+            "border: 2px dashed #e0e0e0; border-radius: 12px; "
+            "padding: 40px 20px; "
+            "font-size: 14px; color: #9e9e9e; "
+            "margin: 40px 24px; "
+            "}"
+        )
+        self._empty_guide.setVisible(False)
+        layout.addWidget(self._empty_guide)
+
         # 预览卡片
         scroll = QFrame()
         scroll.setStyleSheet("QFrame { background-color: transparent; }")
@@ -310,20 +332,24 @@ class MainWindow(QMainWindow):
         info_layout.setContentsMargins(24, 8, 24, 8)
         info_layout.setSpacing(12)
 
-        self._method_card = self._make_info_card("切换方式", "每日随机")
+        mode_name = self._settings.get("switch_mode", "daily_random")
+        mode_display = {"daily_random": "每日随机", "interval_minutes": f"每{self._settings.get('interval_minutes', 60)}分钟", "manual": "手动"}
+        self._method_card = self._make_info_card("切换方式", mode_display.get(mode_name, "每日随机"))
         info_layout.addWidget(self._method_card)
 
         info_layout.addSpacing(12)
 
+        total = self._library.total_count
+        next_time = f"明天 {self._settings.get('daily_time', '08:00')}" if total > 0 else "添加图片后"
         self._next_time_card = self._make_info_card(
-            "下次切换", "明天 08:00", highlight=True
+            "下次切换", next_time, highlight=True
         )
         info_layout.addWidget(self._next_time_card)
 
         info_layout.addSpacing(12)
 
         self._count_card = self._make_info_card(
-            "图片总数", str(self._library.total_count)
+            "图片总数", str(total)
         )
         info_layout.addWidget(self._count_card)
 
@@ -410,17 +436,75 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(page)
         layout.setContentsMargins(24, 16, 24, 16)
 
-        time_label = QLabel(self._get_time_string())
-        time_label.setObjectName("title")
-        time_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        time_label.setStyleSheet(f"font-size: 48px; color: {COLOR_BLUE_DARK};")
-        layout.addWidget(time_label)
+        self._clock_time_label = QLabel(self._get_time_string())
+        self._clock_time_label.setObjectName("title")
+        self._clock_time_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._clock_time_label.setStyleSheet(
+            f"font-size: 48px; color: {COLOR_BLUE_DARK}; font-weight: bold; "
+        )
+        layout.addWidget(self._clock_time_label)
 
-        info = QLabel("切换策略设置后将实时更新")
-        info.setObjectName("sub-title")
-        info.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._clock_date_label = QLabel(self._get_date_string())
+        self._clock_date_label.setObjectName("sub-title")
+        self._clock_date_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._clock_date_label.setStyleSheet(
+            f"font-size: 18px; color: {COLOR_GRAY_500}; margin-bottom: 20px;"
+        )
+        layout.addWidget(self._clock_date_label)
+
+        # 下次切换信息
+        self._clock_next_label = QLabel(self._get_next_switch_text())
+        self._clock_next_label.setObjectName("sub-title")
+        self._clock_next_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._clock_next_label.setStyleSheet(
+            f"font-size: 14px; color: {COLOR_GRAY_800}; padding: 8px;"
+        )
+        layout.addWidget(self._clock_next_label)
+
         layout.addStretch()
         return page
+
+    # ===== 时钟定时器 =====
+
+    def _start_clock_timer(self) -> None:
+        """启动一个定时器，每秒更新时钟显示。"""
+        from PySide6.QtCore import QTimer
+
+        self._clock_timer = QTimer(self)
+        self._clock_timer.timeout.connect(self._update_clock)
+        self._clock_timer.start(1000)  # 每秒更新
+
+    def _update_clock(self) -> None:
+        """每秒更新时钟页面和顶部日期显示。"""
+        now = datetime.now()
+        if hasattr(self, "_clock_time_label"):
+            self._clock_time_label.setText(now.strftime("%H:%M:%S"))
+        if hasattr(self, "_clock_date_label"):
+            self._clock_date_label.setText(now.strftime("%Y年%m月%d日  %A"))
+        if hasattr(self, "_clock_next_label"):
+            self._clock_next_label.setText(self._get_next_switch_text())
+
+    def _get_next_switch_text(self) -> str:
+        """获取下次切换时间的描述文本。"""
+        if self._scheduler is None:
+            return "调度器未启动"
+        if not self._scheduler.is_active:
+            return "● 调度已暂停"
+        mode = self._scheduler.mode
+        if mode == "daily_random":
+            next_time = self._scheduler.get_next_switch_time()
+            if next_time:
+                delta = next_time - datetime.now()
+                hours, remainder = divmod(int(delta.total_seconds()), 3600)
+                minutes = remainder // 60
+                return f"下次切换: {hours}小时{minutes}分钟后 ({next_time.strftime('%H:%M')})"
+            return "下次切换: 明天自动切换"
+        elif mode == "interval_minutes":
+            mins = self._scheduler.interval_minutes or 60
+            return f"每 {mins} 分钟自动切换一次"
+        elif mode == "manual":
+            return "手动模式，不会自动切换"
+        return ""
 
     def _build_settings_page(self) -> QWidget:
         """构建设置页面，包含文件夹添加和模式切换功能。"""
@@ -443,23 +527,30 @@ class MainWindow(QMainWindow):
         dir_label.setObjectName("sub-title")
         group_layout.addWidget(dir_label)
 
-        dirs = self._settings.get("image_directories", [])
-        dirs_text = ", ".join(dirs) if dirs else "未配置（点击添加）"
-        info_dirs = QLabel(dirs_text)
-        info_dirs.setWordWrap(True)
-        info_dirs.setStyleSheet(
-            f"background-color: {COLOR_GRAY_100}; "
-            "border-radius: 6px; "
-            "padding: 8px; font-size: 12px;"
-        )
-        group_layout.addWidget(info_dirs)
+        # 目录列表（每个目录显示路径 + 删除按钮）
+        self._dirs_layout = QVBoxLayout()
+        self._dirs_layout.setSpacing(4)
+        self._refresh_dir_list()
+        group_layout.addLayout(self._dirs_layout)
 
+        # 添加/删除按钮行
+        btn_row = QHBoxLayout()
         btn_add = QPushButton("添加文件夹")
         btn_add.setStyleSheet(
             "QPushButton { padding: 6px 16px; border-radius: 6px; }"
         )
         btn_add.clicked.connect(self._add_directory)
-        group_layout.addWidget(btn_add)
+        btn_row.addWidget(btn_add)
+
+        btn_remove = QPushButton("移除文件夹")
+        btn_remove.setStyleSheet(
+            "QPushButton { padding: 6px 16px; border-radius: 6px; "
+            "color: #c62828; border: 1px solid #ffcdd2; }"
+        )
+        btn_remove.clicked.connect(self._remove_directory)
+        btn_row.addWidget(btn_remove)
+        btn_row.addStretch()
+        group_layout.addLayout(btn_row)
 
         # 显示当前配置的图片目录数量
         self._dir_count_label = QLabel(f"共 {len(dirs)} 个目录")
@@ -510,7 +601,21 @@ class MainWindow(QMainWindow):
         self._interval_input.setPlaceholderText("例如：30")
         self._interval_input.setMaximumWidth(100)
         interval_layout.addWidget(interval_label)
-        interval_layout.addWidget(self._interval_input)
+
+        interval_input_row = QHBoxLayout()
+        interval_input_row.addWidget(self._interval_input)
+        btn_apply_interval = QPushButton("应用")
+        btn_apply_interval.setFixedHeight(26)
+        btn_apply_interval.setStyleSheet(
+            "QPushButton { padding: 2px 12px; border-radius: 6px; "
+            "background-color: #5c6bc0; color: white; font-weight: 600; font-size: 12px; }"
+            "QPushButton:hover { background-color: #7986cb; }"
+        )
+        btn_apply_interval.clicked.connect(self._apply_interval)
+        interval_input_row.addWidget(btn_apply_interval)
+        interval_input_row.addStretch()
+        interval_layout.addLayout(interval_input_row)
+
         self._interval_group.setVisible(False)
         switch_layout.addWidget(self._interval_group)
 
@@ -549,19 +654,16 @@ class MainWindow(QMainWindow):
         # 保存模式到 settings
         self._settings.set("switch_mode", internal_mode)
 
-        # 如果是 interval_minutes 模式，处理间隔值
+        # 如果是 interval_minutes 模式，从 settings 读取现有的间隔值
         if internal_mode == "interval_minutes":
-            try:
-                interval_val = int(self._interval_input.text()) if self._interval_input.text() else None
-                if interval_val is None or interval_val <= 0:
-                    interval_val = 60
-                self._settings.set("interval_minutes", interval_val)
-                if self._scheduler:
-                    self._scheduler._interval_minutes = interval_val
-            except (ValueError, AttributeError):
-                self._settings.set("interval_minutes", 60)
-                if self._scheduler:
-                    self._scheduler._interval_minutes = 60
+            interval_val = self._settings.get("interval_minutes", 60)
+            if interval_val is None or interval_val <= 0:
+                interval_val = 60
+            # 将已有的间隔值显示到输入框
+            self._interval_input.setText(str(interval_val))
+            # 如果调度器存在但 interval 值不同，更新调度器的间隔值
+            if self._scheduler and self._scheduler._interval_minutes != interval_val:
+                self._scheduler._interval_minutes = interval_val
             self._interval_group.setVisible(True)
         else:
             self._interval_group.setVisible(False)
@@ -591,6 +693,111 @@ class MainWindow(QMainWindow):
         dirs = self._settings.get("image_directories", [])
         if hasattr(self, '_dir_count_label'):
             self._dir_count_label.setText(f"共 {len(dirs)} 个目录")
+        self._refresh_dir_list()
+
+    def _refresh_dir_list(self) -> None:
+        """刷新设置页面的目录列表显示。"""
+        if not hasattr(self, '_dirs_layout'):
+            return
+        # 清除旧的子 widget
+        while self._dirs_layout.count():
+            widget = self._dirs_layout.itemAt(0).widget()
+            if widget:
+                widget.deleteLater()
+            else:
+                self._dirs_layout.removeItem(self._dirs_layout.itemAt(0))
+
+        dirs = self._settings.get("image_directories", [])
+        if not dirs:
+            empty_label = QLabel("未配置图片文件夹，请点击「添加文件夹」")
+            empty_label.setStyleSheet(
+                f"background-color: {COLOR_GRAY_100}; "
+                "border-radius: 6px; padding: 8px; font-size: 12px; color: #9e9e9e;"
+            )
+            self._dirs_layout.addWidget(empty_label)
+            return
+
+        for i, d in enumerate(dirs):
+            row = QHBoxLayout()
+            path_label = QLabel(f"  {d}")
+            path_label.setWordWrap(True)
+            path_label.setStyleSheet(
+                f"background-color: {COLOR_GRAY_100}; "
+                "border-radius: 6px; padding: 6px 8px; font-size: 12px;"
+            )
+            path_label.setProperty("dir_index", i)
+            row.addWidget(path_label, stretch=1)
+
+            remove_btn = QPushButton("✕")
+            remove_btn.setFixedSize(24, 24)
+            remove_btn.setStyleSheet(
+                "QPushButton { border: none; border-radius: 12px; "
+                "background-color: #ffcdd2; color: #c62828; font-weight: bold; }"
+                "QPushButton:hover { background-color: #ef9a9a; }"
+            )
+            remove_btn.clicked.connect(lambda checked, p=d: self._remove_single_dir(p))
+            row.addWidget(remove_btn)
+
+            frame = QFrame()
+            frame.setLayout(row)
+            self._dirs_layout.addWidget(frame)
+
+    def _apply_interval(self) -> None:
+        """应用间隔时间设置。"""
+        try:
+            interval_val_str = self._interval_input.text().strip()
+            if not interval_val_str:
+                logger.warning("请输入间隔时间")
+                return
+            interval_val = int(interval_val_str)
+            if interval_val <= 0:
+                logger.warning("间隔时间必须为正数")
+                return
+            self._settings.set("interval_minutes", interval_val)
+            if self._scheduler:
+                self._scheduler._interval_minutes = interval_val
+                # 如果当前是间隔模式且运行中，重启调度器以应用新间隔
+                mode = self._scheduler.mode
+                if mode == "interval_minutes" and self._scheduler.is_running:
+                    self._scheduler.stop()
+                    self._scheduler.start(on_switch=self.on_wallpaper_switched)
+            logger.info("间隔时间已应用: %d 分钟", interval_val)
+            self._update_info_cards()
+            self.update_top_status()
+        except ValueError:
+            logger.warning("间隔时间格式无效，请输入数字")
+
+    def _remove_directory(self) -> None:
+        """弹出选择框，让用户选择移除哪个文件夹。"""
+        dirs = self._settings.get("image_directories", [])
+        if not dirs:
+            return
+        # 如果有多个目录，用简易方式：移除最后一个
+        removed = dirs.pop()
+        self._settings.set("image_directories", dirs)
+        self._library.remove_directory(removed)
+        self._refresh_gallery()
+        self._update_settings_page_display()
+        logger.info("已移除图片目录: %s", removed)
+
+    def _remove_single_dir(self, path: str) -> None:
+        """移除指定路径的图片目录。"""
+        from PySide6.QtWidgets import QMessageBox
+        reply = QMessageBox.question(
+            self, "确认删除",
+            f"确定要从壁纸库中移除「{path}」吗？\n（只是移除目录，不会删除文件）",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            dirs = self._settings.get("image_directories", [])
+            if path in dirs:
+                dirs.remove(path)
+                self._settings.set("image_directories", dirs)
+                self._library.remove_directory(path)
+                self._refresh_gallery()
+                self._update_settings_page_display()
+                logger.info("已移除图片目录: %s", path)
 
     # ===== 业务操作 =====
 
@@ -645,6 +852,9 @@ class MainWindow(QMainWindow):
             available = self._library.list_available()
             index = available.index(path) if path in available else 0
             self._update_preview(path, index)
+            self._update_info_cards()
+            self.update_top_status()
+            self.update_bottom_bar()
         except Exception:
             logger.exception("更新 UI 失败")
 
@@ -674,6 +884,8 @@ class MainWindow(QMainWindow):
         file_name = Path(path).stem
         self._tray.setToolTip(f"Wallpace -- {file_name}")
 
+        self._update_info_cards()
+
     def _on_gallery_click(self, image_path: str) -> None:
         """User clicked a gallery thumbnail - update preview and set as wallpaper."""
         try:
@@ -696,8 +908,16 @@ class MainWindow(QMainWindow):
             self._update_preview(first, 0)
             logger.info("刷新图片库: %d 张", len(images))
             self._refresh_gallery_thumbnails()
+            if hasattr(self, "_empty_guide"):
+                self._empty_guide.setVisible(False)
+                self._preview_card.setVisible(True)
         else:
             logger.info("未发现可用图片")
+            if hasattr(self, "_empty_guide"):
+                self._empty_guide.setVisible(True)
+                self._preview_card.setVisible(False)
+        self._update_info_cards()
+        self.update_bottom_bar()
 
     def _refresh_gallery_thumbnails(self) -> None:
         """Populate gallery horizontal scroll with thumbnails."""
@@ -741,6 +961,28 @@ class MainWindow(QMainWindow):
             self._top_status.setText(f"● 已启用 · 每 {mins} 分钟")
         elif mode == "manual":
             self._top_status.setText("● 已启用 · 手动模式")
+
+    def _update_info_cards(self) -> None:
+        """更新信息网格卡片的内容。"""
+        mode_name = self._settings.get("switch_mode", "daily_random")
+        mode_display = {
+            "daily_random": "每日随机",
+            "interval_minutes": f"每{self._settings.get('interval_minutes', 60)}分钟",
+            "manual": "手动",
+        }
+        total = self._library.total_count
+        next_text = self._get_next_switch_text() if total > 0 else "添加图片后"
+
+        self._update_card_value(self._method_card, mode_display.get(mode_name, "每日随机"))
+        self._update_card_value(self._next_time_card, next_text)
+        self._update_card_value(self._count_card, str(total))
+
+    @staticmethod
+    def _update_card_value(card: QFrame, value: str) -> None:
+        """更新信息卡片的值标签文本。"""
+        val_label = card.findChild(QLabel, "stat-value")
+        if val_label:
+            val_label.setText(value)
 
     def _highlight_current_gallery_item(self, current_path: str) -> None:
         """Update the visual highlight of the currently active gallery item."""
