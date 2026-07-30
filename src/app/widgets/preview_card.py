@@ -1,7 +1,7 @@
 """src/app/widgets/preview_card.py -- Wallpaper preview card component.
 
 Shows current wallpaper thumbnail, filename, path + index overlay, 
-and transition/skip/favorite operations.
+and transition operations.
 """
 
 import logging
@@ -57,7 +57,7 @@ class PreviewCardWidget(QWidget):
         preview_layout.setSpacing(0)
 
         # Image label (top portion)
-        self.preview_label = QLabel("(暂无预览)")
+        self.preview_label = QLabel("(预览图片)")
         self.preview_label.setObjectName("preview-image")
         self.preview_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.preview_label.setMinimumSize(480, 340)
@@ -75,31 +75,10 @@ class PreviewCardWidget(QWidget):
         btn_layout.setContentsMargins(0, 4, 0, 0)
         btn_layout.setSpacing(12)
 
-        btn_skip = QPushButton("跳过  ·  不喜")
-        btn_skip.clicked.connect(self.skip_clicked)
-        btn_skip.setFixedHeight(36)
-        btn_skip.setStyleSheet(
-            "QPushButton { "
-            "border: 2px solid #ffcdd2; border-radius: 10px; "
-            "padding: 8px 16px; "
-            "background-color: white; color: #c62828; "
-            "font-size: 13px; font-weight: 600; } "
-            "QPushButton:hover { background-color: #ffebee; }"
-        )
-
-        btn_favorite = QPushButton("收藏  ·  到精选")
-        btn_favorite.clicked.connect(self.favorite_clicked)
-        btn_favorite.setFixedHeight(36)
-        btn_favorite.setStyleSheet(
-            "QPushButton { "
-            "border: 2px solid #c8e6c9; border-radius: 10px; "
-            "padding: 8px 16px; "
-            "background-color: white; color: #4caf50; "
-            "font-size: 13px; font-weight: 600; } "
-            "QPushButton:hover { background-color: #e8f5e9; }"
-        )
-
+        # Only keep the "switch" button per P2 requirement - remove skip and favorite
         btn_switch = QPushButton("换一张")
+        btn_switch.clicked.connect(self.switch_clicked)
+        btn_switch.setMinimumWidth(96)
         btn_switch.setStyleSheet(
             "QPushButton { "
             "border: none; border-radius: 10px; padding: 8px 32px; "
@@ -113,11 +92,6 @@ class PreviewCardWidget(QWidget):
             "background: qlineargradient(x1:0, y1:0, x2:1, y2:0, "
             "stop:0 #3f51b5, stop:1 #c2185b); }"
         )
-        btn_switch.clicked.connect(self.switch_clicked)
-        btn_switch.setMinimumWidth(96)
-
-        btn_layout.addWidget(btn_skip)
-        btn_layout.addWidget(btn_favorite)
         btn_layout.addWidget(btn_switch)
         btn_layout.addStretch()
         layout.addLayout(btn_layout)
@@ -129,7 +103,7 @@ class PreviewCardWidget(QWidget):
         overlay_layout = QVBoxLayout(self.overlay_frame)
         overlay_layout.setContentsMargins(0, 0, 0, 0)
 
-        # Gradient background — smooth fade from transparent to dark
+        # Gradient background smooth fade from transparent to dark
         self.overlay_frame.setStyleSheet(
             "QWidget { "
             "background: qlineargradient("
@@ -141,7 +115,7 @@ class PreviewCardWidget(QWidget):
         )
 
         # File name label
-        self.filename_label = QLabel("尚未选择图片")
+        self.filename_label = QLabel("未选图片")
         self.filename_label.setObjectName("subtitle")
         self.filename_label.setStyleSheet("color: white; font-size: 14px; font-weight: 500;")
         overlay_layout.addWidget(self.filename_label)
@@ -150,7 +124,7 @@ class PreviewCardWidget(QWidget):
         info_row = QHBoxLayout()
         info_row.setContentsMargins(0, 2, 0, 0)
 
-        self.path_label = QLabel("—")
+        self.path_label = QLabel("")
         self.path_label.setObjectName("sub-title")
         self.path_label.setStyleSheet("color: rgba(255,255,255,0.7); font-size: 11px;")
         info_row.addWidget(self.path_label)
@@ -172,7 +146,7 @@ class PreviewCardWidget(QWidget):
     def _set_placeholder(self) -> None:
         self.preview_label.setStyleSheet(
             f"QLabel#preview-image {{ "
-            f"border: 3px dashed {COLOR_GRAY_200}; "
+            f"border: 3px solid {COLOR_GRAY_200}; "
             f"background-color: {COLOR_GRAY_100}; "
             f"font-size: 14px; color: {COLOR_GRAY_500}; }} "
             f"min-width: 480px; min-height: 300px; "
@@ -219,8 +193,8 @@ class PreviewCardWidget(QWidget):
         self._current_path = ""
         self._current_index = 0
         self._total_count = 0
-        self.filename_label.setText("未选择图片")
-        self.path_label.setText("—")
+        self.filename_label.setText("未选图片")
+        self.path_label.setText("")
         self.index_label.setText("")
         self.preview_label.clear()
         self._set_placeholder()

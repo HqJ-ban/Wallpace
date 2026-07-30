@@ -187,10 +187,27 @@ class Settings:
         """
         merged = dict(DEFAULT_CONFIG)
         for k, v in partial.items():
-            if k in merged and isinstance(v, type(merged[k])):
+            if k not in merged:
+                continue
+            # Allow matching types or None where appropriate
+            default_type = type(merged[k])
+            if v is None:
+                # Allow None for nullable fields like interval_minutes
+                if default_type is type(None) or hasattr(default_type, "__name__") and default_type.__name__ == "NoneType":
+                    merged[k] = v
+                continue
+            # Type match
+            if isinstance(v, default_type):
                 merged[k] = v
-        return merged
-
+            # Special handling for interval_minutes
+            if k == "interval_minutes" and default_type is int:
+                try:
+                    merged[k] = int(v)
+                except (ValueError, TypeError):
+                    pass
+            # For boolean settings
+            elif k in ("enable_notifications", "auto_start", "minimize_to_tray") and default_type is bool:
+                merged[k] = bool(v)
     @property
     def raw(self) -> dict:
         """只读快照，防止外部直接修改内部状态。"""

@@ -1,4 +1,18 @@
-# Wallpace — 桌面壁纸自动切换器
+# Wallpace
+## Project Structure
+```
+Wallpace/
+├── docs/           # API design, architecture docs
+├── src/            # Source code
+│   ├── app/        # UI components (window, tray, widgets)
+│   ├── core/       # Business logic (scheduler, library, settings, wallpaper)
+│   └── utils/      # Utility modules
+├── tests/          # Unit tests
+├── .wallpace.json  # User configuration
+├── build.bat       # Windows build script
+├── pyproject.toml  # Python project config
+└── README.md       # This document
+``` — 桌面壁纸自动切换器
 
 ## 项目概览
 

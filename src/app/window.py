@@ -9,7 +9,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
-from PySide6.QtCore import Qt, Signal, Slot
+from PySide6.QtCore import Qt, Signal, Slot, QTimer
 from PySide6.QtGui import QIcon, QPixmap
 from PySide6.QtWidgets import (
     QComboBox,
@@ -37,6 +37,7 @@ from src.app.theme import (
     COLOR_BLUE_DARK,
     COLOR_GRAY_100,
     COLOR_GRAY_50,
+        COLOR_GRAY_500,
     COLOR_GRAY_800,
     COLOR_PINK_LIGHT,
     COLOR_BLUE_LIGHT,
@@ -178,6 +179,8 @@ class MainWindow(QMainWindow):
         )
         top_bar_layout.addWidget(self._top_status)
         top_bar_layout.setStretchFactor(self._top_status, 0)
+        # 为顶栏状态添加点击事件（用于恢复暂停的调度器）
+        self._top_status.mousePressEvent = self._on_top_status_click
 
         # === 侧边栏 + 内容区 ===
         body_layout = QHBoxLayout()
@@ -465,14 +468,47 @@ class MainWindow(QMainWindow):
         return page
 
     # ===== 时钟定时器 =====
-
     def _start_clock_timer(self) -> None:
-        """启动一个定时器，每秒更新时钟显示。"""
-        from PySide6.QtCore import QTimer
-
+        """启动一个定时器，每秒更新时钟显示."""
+        # 如果有已存在的定时器，先停止并清理
+        if self._clock_timer is not None:
+            try:
+                self._clock_timer.stop()
+            except:
+                pass
+            try:
+                self._clock_timer.deleteLater()
+            except:
+                pass
+            self._clock_timer = None
+        
         self._clock_timer = QTimer(self)
         self._clock_timer.timeout.connect(self._update_clock)
         self._clock_timer.start(1000)  # 每秒更新
+
+    def _update_clock(self) -> None:
+        """每秒更新时钟页面和顶部日期显示."""
+        now = datetime.now()
+        # 安全地获取标签对象
+        time_label = getattr(self, "_clock_time_label", None)
+        date_label = getattr(self, "_clock_date_label", None)
+        next_label = getattr(self, "_clock_next_label", None)
+        
+        if time_label is not None and hasattr(time_label, 'setText'):
+            try:
+                time_label.setText(now.strftime('%H:%M:%S'))
+            except:
+                pass
+        if date_label is not None and hasattr(date_label, 'setText'):
+            try:
+                date_label.setText(now.strftime('%Y-%m-%d'))
+            except:
+                pass
+        if next_label is not None and hasattr(next_label, 'setText'):
+            try:
+                next_label.setText(self._get_next_switch_text())
+            except:
+                pass
 
     def _update_clock(self) -> None:
         """每秒更新时钟页面和顶部日期显示。"""
@@ -553,6 +589,7 @@ class MainWindow(QMainWindow):
         group_layout.addLayout(btn_row)
 
         # 显示当前配置的图片目录数量
+        dirs = self._settings.get("image_directories", [])
         self._dir_count_label = QLabel(f"共 {len(dirs)} 个目录")
         self._dir_count_label.setStyleSheet("font-size: 11px; color: #9e9e9e; margin-top: 4px;")
         group_layout.addWidget(self._dir_count_label)
@@ -828,6 +865,15 @@ class MainWindow(QMainWindow):
         self._library.skip(self._preview_card._current_path)
         logger.info("已跳过: %s", self._preview_card._current_path)
 
+
+
+    def _on_top_status_click(self, event) -> None:
+        """点击顶部状态栏，如果调度器暂停则恢复."""
+        if self._scheduler is not None and not self._scheduler.is_active:
+            self.resume_scheduler()
+            self.update_top_status()
+            logger.info("通过顶栏点击恢复了调度器")
+
     def _handle_favorite(self) -> None:
         """处理用户点击'收藏'。"""
         if not self._preview_card._current_path:
@@ -970,7 +1016,10 @@ class MainWindow(QMainWindow):
             "interval_minutes": f"每{self._settings.get('interval_minutes', 60)}分钟",
             "manual": "手动",
         }
-        total = self._library.total_count
+        # 优先显示可用数量（排除跳过项），若为0则显示总数量
+        total = self._library.available_count
+        if total == 0:
+            total = self._library.total_count
         next_text = self._get_next_switch_text() if total > 0 else "添加图片后"
 
         self._update_card_value(self._method_card, mode_display.get(mode_name, "每日随机"))
