@@ -6,6 +6,8 @@ from typing import TYPE_CHECKING, Optional
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import QMenu, QSystemTrayIcon, QWidget
 
+from src.app.icon import create_tray_icon
+
 if TYPE_CHECKING:
     from src.app.window import MainWindow
 
@@ -27,6 +29,7 @@ class TrayIcon(QSystemTrayIcon):
         self.setContextMenu(self._menu)
 
         self.activated.connect(self.on_activated)
+        self.setIcon(create_tray_icon(32))
         self.setToolTip("Wallpace")
 
     def _create_menu(self) -> None:

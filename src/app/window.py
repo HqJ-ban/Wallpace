@@ -45,6 +45,7 @@ from src.app.theme import (
 )
 from src.app.tray import TrayIcon
 from src.app.widgets.preview_card import PreviewCardWidget
+from src.app.icon import create_app_icon
 
 logger = logging.getLogger(__name__)
 
@@ -149,6 +150,7 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("Wallpace")
         self.setMinimumSize(800, 540)
         self.resize(960, 620)
+        self.setWindowIcon(create_app_icon(256))
         logger.info("主窗口初始化完成")
 
     def _setup_ui(self) -> None:
@@ -485,30 +487,6 @@ class MainWindow(QMainWindow):
         self._clock_timer = QTimer(self)
         self._clock_timer.timeout.connect(self._update_clock)
         self._clock_timer.start(1000)  # 每秒更新
-
-    def _update_clock(self) -> None:
-        """每秒更新时钟页面和顶部日期显示."""
-        now = datetime.now()
-        # 安全地获取标签对象
-        time_label = getattr(self, "_clock_time_label", None)
-        date_label = getattr(self, "_clock_date_label", None)
-        next_label = getattr(self, "_clock_next_label", None)
-        
-        if time_label is not None and hasattr(time_label, 'setText'):
-            try:
-                time_label.setText(now.strftime('%H:%M:%S'))
-            except:
-                pass
-        if date_label is not None and hasattr(date_label, 'setText'):
-            try:
-                date_label.setText(now.strftime('%Y-%m-%d'))
-            except:
-                pass
-        if next_label is not None and hasattr(next_label, 'setText'):
-            try:
-                next_label.setText(self._get_next_switch_text())
-            except:
-                pass
 
     def _update_clock(self) -> None:
         """每秒更新时钟页面和顶部日期显示。"""

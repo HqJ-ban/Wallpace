@@ -19,8 +19,6 @@ pyinstaller ^
   --name wallpace ^
   --windowed ^
   --onefile ^
-  --add-data "assets;assets" ^
-  -- assets/ ^
   src/main.py
 
 echo.
