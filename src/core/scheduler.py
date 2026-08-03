@@ -165,6 +165,11 @@ class Scheduler:
         return self._is_running and self._is_paused
 
     @property
+    def is_running(self) -> bool:
+        """返回调度器是否正在运行（包括已暂停状态）。"""
+        return self._is_running
+
+    @property
     def interval_minutes(self) -> Optional[int]:
         """返回当前设置的间隔分钟数（仅 interval 模式有意义）。"""
         return self._interval_minutes

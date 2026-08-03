@@ -12,7 +12,7 @@
   ],
   "switch_mode": "daily_random",
   "daily_time": "08:00",
-  "interval_minutes": null,
+  "interval_minutes": 60,
   "auto_start": false,
   "favorites": [],
   "skip_list": [],
