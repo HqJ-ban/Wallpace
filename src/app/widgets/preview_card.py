@@ -8,8 +8,8 @@ import logging
 from pathlib import Path
 from typing import Optional
 
-from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QColor, QLinearGradient, QPainter, QPixmap
+from PySide6.QtCore import Qt, QSize, Signal
+from PySide6.QtGui import QColor, QImageReader, QLinearGradient, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -171,9 +171,13 @@ class PreviewCardWidget(QWidget):
         self.path_label.setText(str(Path(image_path).parent))
         self.index_label.setText(f"{index + 1} / {total}")
 
-        pixmap = QPixmap(image_path)
-        if not pixmap.isNull():
-            scaled = pixmap.scaled(
+        # 限制解码尺寸避免加载 4K 大图导致卡顿和内存暴涨
+        reader = QImageReader(image_path)
+        reader.setAutoTransform(True)
+        reader.setScaledSize(QSize(800, 500))
+        image = reader.read()
+        if not image.isNull():
+            scaled = QPixmap.fromImage(image).scaled(
                 480, 300,
                 Qt.AspectRatioMode.KeepAspectRatio,
                 Qt.TransformationMode.SmoothTransformation,

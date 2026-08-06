@@ -9,8 +9,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
-from PySide6.QtCore import Qt, Signal, Slot, QTimer
-from PySide6.QtGui import QIcon, QPixmap
+from PySide6.QtCore import Qt, QSize, Signal, Slot, QTimer
+from PySide6.QtGui import QIcon, QImageReader, QPixmap
 from PySide6.QtWidgets import (
     QComboBox,
     QFileDialog,
@@ -75,12 +75,16 @@ class _GalleryThumbWidget(QLabel):
         self._apply_style()
 
     def _load_pixmap(self) -> None:
-        pixmap = QPixmap(self._image_path)
-        if not pixmap.isNull():
-            scaled = pixmap.scaled(
+        # 使用 QImageReader 限制解码尺寸（2x 目标），避免加载 4K 大图耗尽内存
+        reader = QImageReader(self._image_path)
+        reader.setAutoTransform(True)
+        reader.setScaledSize(QSize(200, 160))
+        image = reader.read()
+        if not image.isNull():
+            scaled = QPixmap.fromImage(image).scaled(
                 80,
                 60,
-                Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+                Qt.AspectRatioMode.KeepAspectRatio,
                 Qt.TransformationMode.SmoothTransformation,
             )
             self.setPixmap(scaled)
@@ -651,10 +655,13 @@ class MainWindow(QMainWindow):
             if folder not in dirs:
                 dirs.append(folder)
                 self._settings.set("image_directories", dirs)
-                self._library.scan()
+            # 关键修复：真正把目录加入 ImageLibrary 内部列表，再扫描
+            if self._library.add_directory(folder):
                 self._refresh_gallery()
                 self._update_settings_page_display()
                 logger.info("已添加图片目录: %s", folder)
+            else:
+                logger.warning("添加图片目录失败（目录无效）: %s", folder)
 
     def _on_mode_changed(self, text: str) -> None:
         """处理模式切换。"""
