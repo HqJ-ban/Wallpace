@@ -1,5 +1,7 @@
 {
-  "image_directories": [],
+  "image_directories": [
+    "D:/my_project/source picture"
+  ],
   "extensions": [
     ".jpg",
     ".jpeg",
