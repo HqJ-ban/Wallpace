@@ -214,7 +214,7 @@ class Scheduler:
     def _schedule_once(self, delay_ms: int, callback: Callable) -> None:
         from PySide6.QtCore import QTimer
         self._pause_timers()
-        timer = QTimer(self)  # 设置 parent，确保正确清理
+        timer = QTimer()
         timer.setSingleShot(True)
         timer.timeout.connect(callback)
         timer.start(delay_ms)
@@ -223,7 +223,7 @@ class Scheduler:
     def _start_repeating_timer(self, delay_ms: int, callback: Callable) -> None:
         from PySide6.QtCore import QTimer
         self._pause_timers()
-        timer = QTimer(self)  # 设置 parent，确保正确清理
+        timer = QTimer()
         timer.timeout.connect(callback)
         timer.start(delay_ms)
         self._timer = timer

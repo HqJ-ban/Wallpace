@@ -72,6 +72,9 @@ class _DecodeJob(QRunnable):
                 )
                 return
             _signals.ready.emit(self._path, image)
+        except RuntimeError:
+            # 信号槽连接已断开或对象已销毁，静默忽略
+            pass
         except Exception:
             logger.exception("后台解码异常: %s", self._path)
 
