@@ -14,10 +14,8 @@ from PySide6.QtGui import (
     QLinearGradient,
     QPainter,
     QPainterPath,
-    QPen,
     QPixmap,
 )
-from PySide6.QtWidgets import QWidget
 
 logger = logging.getLogger(__name__)
 
