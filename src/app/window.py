@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
 from PySide6.QtCore import Qt, QSize, Signal, Slot, QTimer
-from PySide6.QtGui import QIcon, QImageReader, QPixmap
+from PySide6.QtGui import QIcon, QPixmap
 from PySide6.QtWidgets import (
     QComboBox,
     QFileDialog,
@@ -46,6 +46,7 @@ from src.app.theme import (
 from src.app.tray import TrayIcon
 from src.app.widgets.preview_card import PreviewCardWidget
 from src.app.icon import create_app_icon
+from src.app import image_loader
 
 logger = logging.getLogger(__name__)
 
@@ -56,9 +57,13 @@ logger = logging.getLogger(__name__)
 
 
 class _GalleryThumbWidget(QLabel):
-    """可点击的图片库缩略图，支持高亮当前选中项。"""
+    """可点击的图片库缩略图，支持高亮当前选中项。
+
+    缩略图通过 image_loader 在后台线程解码，避免在主线程加载 4K 大图造成卡顿。
+    """
 
     clicked = Signal(str)  # emits image path on click
+    _THUMB_SIZE = QSize(200, 160)
 
     def __init__(
         self,
@@ -69,25 +74,33 @@ class _GalleryThumbWidget(QLabel):
         super().__init__(parent)
         self._image_path = image_path
         self._is_current = is_current
+        self._conn = None
         self.setFixedSize(80, 60)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._load_pixmap()
         self._apply_style()
+        # 异步加载缩略图，解码完成回到主线程后更新
+        self._conn = image_loader.connect_ready(self._on_image_ready)
+        image_loader.load_async(image_path, self._THUMB_SIZE)
 
-    def _load_pixmap(self) -> None:
-        # 使用 QImageReader 限制解码尺寸（2x 目标），避免加载 4K 大图耗尽内存
-        reader = QImageReader(self._image_path)
-        reader.setAutoTransform(True)
-        reader.setScaledSize(QSize(200, 160))
-        image = reader.read()
-        if not image.isNull():
-            scaled = QPixmap.fromImage(image).scaled(
-                80,
-                60,
-                Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation,
-            )
-            self.setPixmap(scaled)
+    def _on_image_ready(self, path: str, image) -> None:
+        """后台解码完成的回调（主线程执行）。只处理匹配当前 path 的图片。"""
+        if path != self._image_path:
+            return
+        if image.isNull():
+            return
+        scaled = QPixmap.fromImage(image).scaled(
+            80,
+            60,
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation,
+        )
+        self.setPixmap(scaled)
+
+    def cleanup(self) -> None:
+        """widget 销毁时断开信号连接，避免回调引用已销毁对象。"""
+        if self._conn is not None:
+            self._conn.disconnect()
+            self._conn = None
 
     def _apply_style(self) -> None:
         border_color = "#ec4899" if self._is_current else "#eeeeee"
@@ -956,6 +969,8 @@ class MainWindow(QMainWindow):
         for i in reversed(range(self._gallery_layout.count())):
             widget = self._gallery_layout.itemAt(i).widget()
             if widget is not None:
+                if isinstance(widget, _GalleryThumbWidget):
+                    widget.cleanup()
                 widget.deleteLater()
 
         images = self._library.list_available()

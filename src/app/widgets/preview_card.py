@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.app.theme import COLOR_GRAY_100, COLOR_GRAY_200, COLOR_GRAY_500
+from src.app import image_loader
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +40,7 @@ class PreviewCardWidget(QWidget):
         self._current_path: str = ""
         self._current_index: int = 0
         self._total_count: int = 0
+        self._conn = image_loader.connect_ready(self._on_image_ready)
         self._setup_ui()
         self._set_placeholder()
 
@@ -171,27 +173,45 @@ class PreviewCardWidget(QWidget):
         self.path_label.setText(str(Path(image_path).parent))
         self.index_label.setText(f"{index + 1} / {total}")
 
-        # 限制解码尺寸避免加载 4K 大图导致卡顿和内存暴涨
-        reader = QImageReader(image_path)
-        reader.setAutoTransform(True)
-        reader.setScaledSize(QSize(800, 500))
-        image = reader.read()
-        if not image.isNull():
-            scaled = QPixmap.fromImage(image).scaled(
-                480, 300,
-                Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation,
-            )
-            self.preview_label.setPixmap(scaled)
-            self.preview_label.setStyleSheet(
-                f"QLabel#preview-image {{ "
-                f"border: 3px solid {COLOR_GRAY_200}; "
-                f"border-radius: 12px; "
-                f"background-color: transparent; "
-                f"}}"
-            )
-        else:
+        # 显示等待占位，随后异步解码大图
+        self._set_loading()
+        image_loader.load_async(image_path, QSize(900, 600))
+
+    # ===== 异步解码回调 =====
+
+    def _on_image_ready(self, path: str, image) -> None:
+        """后台解码完成后的回调（主线程执行），只处理当前预览图。"""
+        if path != self._current_path:
+            return
+        if image.isNull():
             self._set_placeholder()
+            return
+        scaled = QPixmap.fromImage(image).scaled(
+            480, 300,
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation,
+        )
+        self.preview_label.setPixmap(scaled)
+        self.preview_label.setStyleSheet(
+            f"QLabel#preview-image {{ "
+            f"border: 3px solid {COLOR_GRAY_200}; "
+            f"border-radius: 12px; "
+            f"background-color: transparent; "
+            f"}}"
+        )
+
+    def _set_loading(self) -> None:
+        """显示加载中的占位提示。"""
+        self.preview_label.clear()
+        self.preview_label.setText("加载中…")
+        self.preview_label.setStyleSheet(
+            f"QLabel#preview-image {{ "
+            f"border: 3px dashed {COLOR_GRAY_200}; "
+            f"background-color: {COLOR_GRAY_100}; "
+            f"font-size: 14px; color: {COLOR_GRAY_500}; }} "
+            f"min-width: 480px; min-height: 300px; "
+            f"max-width: 480px; max-height: 300px;"
+        )
 
     def clear_preview(self) -> None:
         self._current_path = ""
@@ -202,3 +222,9 @@ class PreviewCardWidget(QWidget):
         self.index_label.setText("")
         self.preview_label.clear()
         self._set_placeholder()
+
+    def cleanup(self) -> None:
+        """widget 销毁时断开图片加载信号连接。"""
+        if self._conn is not None:
+            self._conn.disconnect()
+            self._conn = None
