@@ -1029,9 +1029,14 @@ class MainWindow(QMainWindow):
     @staticmethod
     def _update_card_value(card: QFrame, value: str) -> None:
         """更新信息卡片的值标签文本。"""
-        val_label = card.findChild(QLabel, "stat-value")
-        if val_label:
-            val_label.setText(value)
+        # 找到卡片中的 QLabel（按顺序第一个就是 value 标签）
+        labels = card.findChildren(QLabel)
+        if labels:
+            # 第一个是 label（小字），第二个是 value（大字）
+            if len(labels) >= 2:
+                labels[1].setText(value)
+            elif len(labels) == 1:
+                labels[0].setText(value)
 
     def _highlight_current_gallery_item(self, current_path: str) -> None:
         """Update the visual highlight of the currently active gallery item."""

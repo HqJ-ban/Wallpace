@@ -10,7 +10,7 @@
     ".gif",
     ".webp"
   ],
-  "switch_mode": "daily_random",
+  "switch_mode": "interval_minutes",
   "daily_time": "08:00",
   "interval_minutes": 60,
   "auto_start": false,

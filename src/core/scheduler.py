@@ -214,7 +214,7 @@ class Scheduler:
     def _schedule_once(self, delay_ms: int, callback: Callable) -> None:
         from PySide6.QtCore import QTimer
         self._pause_timers()
-        timer = QTimer()
+        timer = QTimer(self)  # 设置 parent，确保正确清理
         timer.setSingleShot(True)
         timer.timeout.connect(callback)
         timer.start(delay_ms)
@@ -223,7 +223,7 @@ class Scheduler:
     def _start_repeating_timer(self, delay_ms: int, callback: Callable) -> None:
         from PySide6.QtCore import QTimer
         self._pause_timers()
-        timer = QTimer()
+        timer = QTimer(self)  # 设置 parent，确保正确清理
         timer.timeout.connect(callback)
         timer.start(delay_ms)
         self._timer = timer
@@ -236,9 +236,14 @@ class Scheduler:
 
     def _pause_timers(self) -> None:
         if self._timer is not None:
-            self._timer.stop()
-            self._timer.deleteLater()
-            self._timer = None
+            try:
+                self._timer.stop()
+                self._timer.deleteLater()
+            except RuntimeError:
+                # 对象已被删除，忽略
+                pass
+            finally:
+                self._timer = None
 
     def _do_daily_timer(self) -> None:
         if self._library is None or self._wallpaper_manager is None:
