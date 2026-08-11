@@ -89,6 +89,16 @@ def main() -> None:
     )
     scheduler.set_dependencies(library, wm)
 
+    # 同步开机自启注册表（仅在状态不一致时写，避免每次启动都写）
+    from src.core.autostart_registry import AutostartManager
+
+    mgr = AutostartManager()
+    want = settings.get("auto_start", True)
+    if want and not mgr.is_enabled:
+        mgr.enable()
+    elif not want and mgr.is_enabled:
+        mgr.disable()
+
     # Phase 2: 创建 MainWindow
     from src.app.window import MainWindow
 

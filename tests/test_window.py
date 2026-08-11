@@ -9,9 +9,10 @@
 import sys
 import time
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
-from PySide6.QtGui import QImage
+from PySide6.QtGui import QCloseEvent, QImage
 from PySide6.QtWidgets import QApplication
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
@@ -58,7 +59,8 @@ def main_window(app):
         scheduler=scheduler,
     )
     yield window
-    window.close()
+    # 强制退出，确保窗口/托盘/调度器被真正清理（绕过最小化到托盘逻辑）
+    window.quit_app()
 
 
 class TestMainWindowInit:
@@ -232,3 +234,117 @@ class TestMainWindowScheduler:
         main_window.pause_scheduler()
         main_window.resume_scheduler()
         assert main_window._scheduler.is_running
+
+
+class TestMainWindowCloseBehavior:
+    """关闭窗口行为：最小化到托盘 vs 真正退出。
+
+    使用 tmp_config_dir 隔离配置，避免读写真实 .wallpace.json 造成用例间污染。
+    """
+
+    def test_close_minimizes_to_tray_by_default(
+        self, tmp_config_dir, main_window, monkeypatch
+    ):
+        """默认开启最小化到托盘：忽略关闭事件、隐藏窗口、保留托盘与调度器。"""
+        stopped = {"called": False}
+
+        def fake_stop() -> None:
+            stopped["called"] = True
+
+        monkeypatch.setattr(main_window._scheduler, "stop", fake_stop)
+
+        event = QCloseEvent()
+        main_window.closeEvent(event)
+
+        # 事件被忽略（isAccepted 为 False）
+        assert event.isAccepted() is False
+        # 窗口被隐藏
+        assert main_window.isHidden() is True
+        # 调度器未被停止（壁纸切换继续工作）
+        assert stopped["called"] is False
+        # 托盘仍然存在
+        assert main_window._tray is not None
+
+    def test_close_quits_when_minimize_disabled(
+        self, tmp_config_dir, main_window, monkeypatch
+    ):
+        """关闭最小化到托盘关闭：真正退出，事件被接受且调度器停止。"""
+        main_window._settings.set("minimize_to_tray", False)
+        stopped = {"called": False}
+
+        def fake_stop() -> None:
+            stopped["called"] = True
+
+        monkeypatch.setattr(main_window._scheduler, "stop", fake_stop)
+
+        event = QCloseEvent()
+        main_window.closeEvent(event)
+
+        assert event.isAccepted() is True
+        assert stopped["called"] is True
+
+    def test_quit_app_forces_close(self, tmp_config_dir, main_window, monkeypatch):
+        """quit_app() 绕过最小化逻辑，强制真正退出。"""
+        stopped = {"called": False}
+
+        def fake_stop() -> None:
+            stopped["called"] = True
+
+        monkeypatch.setattr(main_window._scheduler, "stop", fake_stop)
+
+        main_window.quit_app()
+
+        assert main_window._force_quit is True
+        assert stopped["called"] is True
+
+
+class TestMainWindowSettingsAutostart:
+    """设置页“开机自启”与“最小化到托盘”开关。
+
+    使用 tmp_config_dir 隔离配置，并 mock AutostartManager 避免真实写注册表。
+    """
+
+    def test_settings_has_autostart_checkbox(self, tmp_config_dir, main_window):
+        """设置页应含“开机自启”与“关闭窗口时最小化到托盘”复选框。"""
+        assert hasattr(main_window, "_autostart_check")
+        assert hasattr(main_window, "_minimize_check")
+        # 默认开启 -> 复选框勾选
+        assert main_window._autostart_check.isChecked() is True
+        assert main_window._minimize_check.isChecked() is True
+
+    def test_autostart_toggle_enables(
+        self, tmp_config_dir, main_window, monkeypatch
+    ):
+        """勾选“开机自启”：保存设置并调用 AutostartManager.enable()。"""
+        mock_mgr = MagicMock()
+        monkeypatch.setattr(
+            "src.app.window.AutostartManager", lambda: mock_mgr
+        )
+
+        main_window._on_autostart_toggled(True)
+
+        assert main_window._settings.get("auto_start") is True
+        mock_mgr.enable.assert_called_once()
+        mock_mgr.disable.assert_not_called()
+
+    def test_autostart_toggle_disables(
+        self, tmp_config_dir, main_window, monkeypatch
+    ):
+        """取消“开机自启”：保存设置并调用 AutostartManager.disable()。"""
+        mock_mgr = MagicMock()
+        monkeypatch.setattr(
+            "src.app.window.AutostartManager", lambda: mock_mgr
+        )
+
+        main_window._on_autostart_toggled(False)
+
+        assert main_window._settings.get("auto_start") is False
+        mock_mgr.disable.assert_called_once()
+        mock_mgr.enable.assert_not_called()
+
+    def test_minimize_toggle_updates_settings(self, tmp_config_dir, main_window):
+        """“关闭窗口时最小化到托盘”开关只保存设置。"""
+        main_window._on_minimize_toggled(False)
+        assert main_window._settings.get("minimize_to_tray") is False
+        main_window._on_minimize_toggled(True)
+        assert main_window._settings.get("minimize_to_tray") is True

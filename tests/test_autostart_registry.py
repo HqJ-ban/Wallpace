@@ -24,40 +24,38 @@ class TestAutostartManagerImport:
         assert len(path) > 0
 
 
-class TestAutostartManagerPropertyEnabled:
-    @pytest.mark.skipif(False, reason="verify no crash")
-    def test_is_enabled_no_crash(self) -> None:
+@pytest.fixture
+def mocked_manager():
+    """构造使用 fake winreg 的 AutostartManager，避免触碰真实注册表。"""
+    fake_winreg = MagicMock()
+    fake_key = MagicMock()
+    fake_winreg.HKEY_CURRENT_USER = MagicMock()
+    fake_winreg.OpenKey.return_value = fake_key
+    fake_winreg.REG_SZ = 1
+    with patch.dict("sys.modules", {"winreg": fake_winreg}, create=True):
         from src.core.autostart_registry import AutostartManager
 
-        mgr = AutostartManager()
-        result = mgr.is_enabled
+        yield AutostartManager()
+
+
+class TestAutostartManagerPropertyEnabled:
+    def test_is_enabled_no_crash(self, mocked_manager) -> None:
+        result = mocked_manager.is_enabled
         assert isinstance(result, bool)
 
 
 class TestAutostartManagerEnableDisable:
-    @pytest.mark.skipif(False, reason="verify no crash")
-    def test_enable_no_crash(self) -> None:
-        from src.core.autostart_registry import AutostartManager
-
-        mgr = AutostartManager()
-        result = mgr.enable()
+    def test_enable_no_crash(self, mocked_manager) -> None:
+        result = mocked_manager.enable()
         assert isinstance(result, bool)
 
-    @pytest.mark.skipif(False, reason="verify no crash")
-    def test_disable_no_crash(self) -> None:
-        from src.core.autostart_registry import AutostartManager
-
-        mgr = AutostartManager()
-        result = mgr.disable()
+    def test_disable_no_crash(self, mocked_manager) -> None:
+        result = mocked_manager.disable()
         assert isinstance(result, bool)
 
-    @pytest.mark.skipif(False, reason="verify idempotent")
-    def test_idempotent_enable(self) -> None:
-        from src.core.autostart_registry import AutostartManager
-
-        mgr = AutostartManager()
-        mgr.enable()
-        mgr.enable()
+    def test_idempotent_enable(self, mocked_manager) -> None:
+        mocked_manager.enable()
+        mocked_manager.enable()
 
 
 class TestAutostartManagerMockWinreg:

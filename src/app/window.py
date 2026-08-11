@@ -21,6 +21,7 @@ from PySide6.QtCore import (
 )
 from PySide6.QtGui import QIcon, QPixmap
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QFileDialog,
     QLineEdit,
@@ -56,6 +57,7 @@ from src.app.tray import TrayIcon
 from src.app.widgets.preview_card import PreviewCardWidget
 from src.app.icon import create_app_icon
 from src.app import image_loader
+from src.core.autostart_registry import AutostartManager
 
 logger = logging.getLogger(__name__)
 
@@ -200,6 +202,7 @@ class MainWindow(QMainWindow):
     ) -> None:
         super().__init__(*args, **kwargs)
         self._settings = settings
+        self._force_quit = False  # 是否强制退出（绕过最小化到托盘）
         self._library = library
         self._wallpaper_manager = wallpaper_manager
         self._scheduler = scheduler
@@ -723,9 +726,52 @@ class MainWindow(QMainWindow):
         switch_layout.addWidget(self._interval_group)
 
         layout.addWidget(group_switch)
+        layout.addSpacing(16)
+
+        # --- 分组: 通用 ---
+        group_general = QFrame()
+        group_general.setObjectName("settings_group")
+        general_layout = QVBoxLayout(group_general)
+        general_layout.setContentsMargins(12, 12, 12, 12)
+
+        general_title = QLabel("通用")
+        general_title.setObjectName("sub-title")
+        general_layout.addWidget(general_title)
+
+        # 开机自启
+        self._autostart_check = QCheckBox("开机自启")
+        self._autostart_check.setChecked(
+            bool(self._settings.get("auto_start", True))
+        )
+        self._autostart_check.toggled.connect(self._on_autostart_toggled)
+        general_layout.addWidget(self._autostart_check)
+
+        # 关闭窗口时最小化到托盘
+        self._minimize_check = QCheckBox("关闭窗口时最小化到托盘")
+        self._minimize_check.setChecked(
+            bool(self._settings.get("minimize_to_tray", True))
+        )
+        self._minimize_check.toggled.connect(self._on_minimize_toggled)
+        general_layout.addWidget(self._minimize_check)
+
+        layout.addWidget(group_general)
         layout.addStretch()
 
         return page
+
+    # ===== 设置页面的辅助方法 =====
+
+    def _on_autostart_toggled(self, checked: bool) -> None:
+        """“开机自启”开关：保存设置并同步注册表（经 AutostartManager）。"""
+        self._settings.set("auto_start", bool(checked))
+        if checked:
+            AutostartManager().enable()
+        else:
+            AutostartManager().disable()
+
+    def _on_minimize_toggled(self, checked: bool) -> None:
+        """“关闭窗口时最小化到托盘”开关：仅保存设置。"""
+        self._settings.set("minimize_to_tray", bool(checked))
 
     # ===== 设置页面的辅助方法 =====
 
@@ -1239,10 +1285,31 @@ class MainWindow(QMainWindow):
         return now.strftime("%Y年%m月%d日")
 
     def closeEvent(self, event) -> None:
-        """托盘图标清理。"""
-        super().closeEvent(event)
+        """窗口关闭事件。
+
+        若开启“关闭窗口时最小化到托盘”且非强制退出，则忽略关闭事件、
+        隐藏窗口，保留托盘与调度器继续运行（类似微信）。否则真正退出。
+        """
+        minimize_to_tray = self._settings.get("minimize_to_tray", True)
+        if minimize_to_tray and not self._force_quit:
+            # 最小化到托盘：保留托盘与调度器，壁纸切换继续工作
+            event.ignore()
+            self.hide()
+            if hasattr(self, "_tray") and self._tray is not None:
+                self._tray.show()
+                self._tray.setVisible(True)
+            return
+
+        # 真正退出：停调度器、隐藏并删除托盘
+        if hasattr(self, "_scheduler") and self._scheduler is not None:
+            self._scheduler.stop()
         if hasattr(self, "_tray") and self._tray is not None:
             self._tray.setVisible(False)
             self._tray.deleteLater()
-        if hasattr(self, "_scheduler") and self._scheduler is not None:
-            self._scheduler.stop()
+        super().closeEvent(event)
+        event.accept()
+
+    def quit_app(self) -> None:
+        """强制退出应用：绕过最小化到托盘逻辑，真正关闭窗口。"""
+        self._force_quit = True
+        self.close()

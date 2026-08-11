@@ -90,7 +90,7 @@ class TrayIcon(QSystemTrayIcon):
 
     def _on_exit(self) -> None:
         logger.info("\u4ece\u6258\u76d8\u9000\u51fa")
-        self._main_window.close()
+        self._main_window.quit_app()
 
     def on_activated(self, reason: int) -> None:
         """左键点击托盘图标快速切一张。"""

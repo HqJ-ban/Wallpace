@@ -75,7 +75,8 @@ class AutostartManager:
             return False
         try:
             exe_path = _get_exe_path()
-            args = "--hidden" if not getattr(sys, "frozen", False) else ""
+            # 开发与打包态都带 --hidden：开机自启一律进托盘，不弹主窗口（像微信）
+            args = "--hidden"
             value = f'"{exe_path}"{f" {args}" if args else ""}'
             self._winreg.SetValueEx(
                 self._reg_key, _APP_NAME, 0,
