@@ -193,7 +193,9 @@ class SidebarNavigation(QWidget):
     ]
 
     ACTION_ITEMS = [
-        ("☆", "★", "收藏", "favorite"),          # Star unfilled -> filled
+        ("↺", "↺", "换一张", "switch"),
+        ("⏭", "⏭", "跳过", "skip"),
+        ("☆", "★", "收藏", "favorite"),
     ]
 
     def __init__(self, stacked: QStackedWidget,

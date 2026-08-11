@@ -1,4 +1,7 @@
 @echo off
+REM 优先使用已装好 PySide6 / PyInstaller 的系统 Python 3.13
+REM （仅在本脚本会话内生效，不改全局 PATH，避免影响其他程序）
+set "PATH=C:\Programs\Python\Python313;C:\Programs\Python\Python313\Scripts;%PATH%"
 REM ==========================================
 REM Wallpace — PyInstaller 打包脚本
 REM 用法: 双击运行或在 cmd 中执行

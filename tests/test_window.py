@@ -1,15 +1,29 @@
 """tests/test_window.py — MainWindow 集成测试。
 
 测试主窗口的关键交互逻辑，使用 offscreen 平台避免 GUI 依赖。
+
+注意：图片库扫描已改为后台线程异步执行（修复 UI 卡死），
+依赖扫描结果的断言需先通过 _wait_for_scan() 等待扫描完成。
 """
 
 import sys
+import time
 from pathlib import Path
 
 import pytest
+from PySide6.QtGui import QImage
 from PySide6.QtWidgets import QApplication
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+
+
+def _wait_for_scan(window, timeout: float = 5.0) -> None:
+    """等待 MainWindow 的后台扫描完成（驱动事件循环以投递完成信号）。"""
+    deadline = time.time() + timeout
+    while window._scan_running and time.time() < deadline:
+        QApplication.processEvents()
+        time.sleep(0.005)
+    QApplication.processEvents()
 
 
 @pytest.fixture
@@ -102,6 +116,7 @@ class TestMainWindowGallery:
         # 添加到 library
         main_window._library.add_directory(str(tmp_path))
         main_window._refresh_gallery()
+        _wait_for_scan(main_window)
 
         assert main_window._library.total_count > 0
 
@@ -118,6 +133,7 @@ class TestMainWindowGallery:
 
         main_window._library.add_directory(str(tmp_path))
         main_window._refresh_gallery()
+        _wait_for_scan(main_window)
 
         # 应该有缩略图 widget
         assert main_window._gallery_layout.count() > 0
@@ -134,22 +150,43 @@ class TestMainWindowSettings:
     def test_add_directory(self, main_window, tmp_path):
         """测试添加目录。"""
         from PySide6.QtGui import QImageWriter
-
+ 
         # 创建测试图片
         img = QImage(100, 100, QImage.Format_RGB32)
         img.fill(0xFF0000)
         img_path = tmp_path / "test.jpg"
         QImageWriter.write(img, str(img_path), "JPG")
-
+ 
         # 模拟添加目录（绕过 QFileDialog）
         dirs = main_window._settings.get("image_directories", [])
         dirs.append(str(tmp_path))
         main_window._settings.set("image_directories", dirs)
         main_window._library.add_directory(str(tmp_path))
         main_window._refresh_gallery()
+        _wait_for_scan(main_window)
 
         assert main_window._library.directory_count > 0
         assert main_window._library.total_count > 0
+
+    def test_add_directory_does_not_double_scan(self, main_window, tmp_path, monkeypatch):
+        """添加目录时应仅在 MainWindow 内部触发一次扫描。"""
+        # 等待初始化时的后台扫描结束（扫描进行中 _add_directory 会被忽略）
+        _wait_for_scan(main_window)
+        monkeypatch.setattr(
+            "src.app.window.QFileDialog.getExistingDirectory",
+            lambda *args, **kwargs: str(tmp_path),
+        )
+
+        scan_flag = {}
+
+        def fake_add_directory(path, scan=True):
+            scan_flag["scan"] = scan
+            return True
+
+        monkeypatch.setattr(main_window._library, "add_directory", fake_add_directory)
+        main_window._add_directory()
+
+        assert scan_flag.get("scan") is False
 
     def test_remove_directory(self, main_window, tmp_path):
         """测试移除目录。"""
@@ -163,10 +200,12 @@ class TestMainWindowSettings:
 
         main_window._library.add_directory(str(tmp_path))
         main_window._refresh_gallery()
+        _wait_for_scan(main_window)
 
         # 移除目录
         removed = main_window._library.remove_directory(str(tmp_path))
         main_window._refresh_gallery()
+        _wait_for_scan(main_window)
 
         assert removed is True
         assert main_window._library.directory_count == 0

@@ -61,10 +61,13 @@ class Settings:
             if self.config_path.exists():
                 with open(self.config_path, "r", encoding="utf-8") as f:
                     raw = json.load(f)
+                if not isinstance(raw, dict):
+                    logger.warning("配置根对象必须是对象，使用默认配置")
+                    raw = {}
                 errors = self.validate(raw)
                 if errors:
                     logger.warning("配置部分字段无效，自动修复: %s", errors)
-                    raw = self._merge_with_defaults(raw)
+                raw = self._merge_with_defaults(raw)
                 self._data = raw
                 logger.info("已从 %s 加载配置", self.config_path.name)
             else:
@@ -176,6 +179,12 @@ class Settings:
             if not isinstance(val, list):
                 errors.append(f"'{field}' 必须是列表")
 
+        # --- boolean flags ---
+        for field in ("enable_notifications", "auto_start", "minimize_to_tray"):
+            val = data.get(field)
+            if not isinstance(val, bool):
+                errors.append(f"'{field}' 必须是布尔值")
+
         return errors
 
     # ==================== 私有方法 ====================
@@ -183,31 +192,36 @@ class Settings:
     def _merge_with_defaults(self, partial: dict) -> dict:
         """用默认值修复 partial 中无效的字段。
 
-        只在 partial 缺失或完全非法时 fallback，保留合法覆盖。
+        只在 partial 中的字段通过本地校验时才保留其值；否则回退到默认值。
+        未知字段会被保留，避免丢失自定义配置。
         """
         merged = dict(DEFAULT_CONFIG)
         for k, v in partial.items():
             if k not in merged:
-                continue
-            # Allow matching types or None where appropriate
-            default_type = type(merged[k])
-            if v is None:
-                # Allow None for nullable fields like interval_minutes
-                if default_type is type(None) or hasattr(default_type, "__name__") and default_type.__name__ == "NoneType":
-                    merged[k] = v
-                continue
-            # Type match
-            if isinstance(v, default_type):
                 merged[k] = v
-            # Special handling for interval_minutes
-            if k == "interval_minutes" and default_type is int:
+                continue
+
+            candidate = dict(DEFAULT_CONFIG)
+            if k == "interval_minutes" and v is not None:
                 try:
-                    merged[k] = int(v)
+                    candidate[k] = int(v)
                 except (ValueError, TypeError):
-                    pass
-            # For boolean settings
-            elif k in ("enable_notifications", "auto_start", "minimize_to_tray") and default_type is bool:
-                merged[k] = bool(v)
+                    candidate[k] = v
+            elif k in ("enable_notifications", "auto_start", "minimize_to_tray") and isinstance(v, str):
+                lower = v.lower()
+                if lower in {"true", "false"}:
+                    candidate[k] = lower == "true"
+                else:
+                    candidate[k] = v
+            else:
+                candidate[k] = v
+
+            if self.validate(candidate) == []:
+                merged[k] = candidate[k]
+            else:
+                merged[k] = dict(DEFAULT_CONFIG)[k]
+
+        return merged
     @property
     def raw(self) -> dict:
         """只读快照，防止外部直接修改内部状态。"""

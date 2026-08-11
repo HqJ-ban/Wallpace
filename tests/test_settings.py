@@ -41,6 +41,19 @@ class TestSettingsLoadSave:
         s = Settings()
         assert s.save() is None
 
+    def test_load_merges_invalid_config_with_defaults(self, tmp_config_dir: Path):
+        config_path = tmp_config_dir / ".wallpace.json"
+        config_path.write_text(
+            '{"switch_mode": "invalid_mode", "interval_minutes": "oops", "enable_notifications": "no"}',
+            encoding="utf-8",
+        )
+
+        s = Settings(config_path=config_path)
+
+        assert s.get("switch_mode") == "daily_random"
+        assert s.get("interval_minutes") is None
+        assert s.get("enable_notifications") is True
+
 
 class TestSettingsValidation:
     """validate() 静态方法的各种非法输入。"""

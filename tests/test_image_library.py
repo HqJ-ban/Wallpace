@@ -51,6 +51,18 @@ class TestImageLibraryScan:
         for img in images:
             assert Path(img).is_absolute()
 
+    def test_scan_nested_directories(self, tmp_path):
+        nested = tmp_path / "nested"
+        nested.mkdir(parents=True)
+        nested_file = nested / "nested.jpg"
+        nested_file.write_text("dummy image content")
+
+        lib = ImageLibrary(directories=[str(tmp_path)])
+        images = lib.scan()
+
+        assert str(nested_file.resolve()) in images
+        assert images.count(str(nested_file.resolve())) == 1
+
 
 class TestImageLibraryRandom:
     def test_get_random_empty(self):

@@ -48,6 +48,7 @@ logs/
 tests/.coverage
 htmlcov/
 .pytest_cache/
+.pytest-tmp/
 
 # Observability notes
 .obsidian/

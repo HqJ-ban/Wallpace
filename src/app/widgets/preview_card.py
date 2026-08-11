@@ -77,13 +77,12 @@ class PreviewCardWidget(QWidget):
         btn_layout.setContentsMargins(0, 4, 0, 0)
         btn_layout.setSpacing(12)
 
-        # Only keep the "switch" button per P2 requirement - remove skip and favorite
         btn_switch = QPushButton("换一张")
         btn_switch.clicked.connect(self.switch_clicked)
         btn_switch.setMinimumWidth(96)
         btn_switch.setStyleSheet(
             "QPushButton { "
-            "border: none; border-radius: 10px; padding: 8px 32px; "
+            "border: none; border-radius: 10px; padding: 8px 24px; "
             "font-size: 14px; font-weight: 600; color: white; "
             "background: qlineargradient(x1:0, y1:0, x2:1, y2:0, "
             "stop:0 #5c6bc0, stop:1 #e91e63); } "
@@ -95,6 +94,31 @@ class PreviewCardWidget(QWidget):
             "stop:0 #3f51b5, stop:1 #c2185b); }"
         )
         btn_layout.addWidget(btn_switch)
+
+        btn_skip = QPushButton("跳过")
+        btn_skip.clicked.connect(self.skip_clicked)
+        btn_skip.setMinimumWidth(96)
+        btn_skip.setStyleSheet(
+            "QPushButton { "
+            "border: none; border-radius: 10px; padding: 8px 24px; "
+            "font-size: 14px; font-weight: 600; color: #424242; "
+            "background: #f5f5f5; } "
+            "QPushButton:hover { background: #eeeeee; }"
+        )
+        btn_layout.addWidget(btn_skip)
+
+        btn_favorite = QPushButton("收藏")
+        btn_favorite.clicked.connect(self.favorite_clicked)
+        btn_favorite.setMinimumWidth(96)
+        btn_favorite.setStyleSheet(
+            "QPushButton { "
+            "border: none; border-radius: 10px; padding: 8px 24px; "
+            "font-size: 14px; font-weight: 600; color: #b45309; "
+            "background: #fef3c7; } "
+            "QPushButton:hover { background: #fde68a; }"
+        )
+        btn_layout.addWidget(btn_favorite)
+
         btn_layout.addStretch()
         layout.addLayout(btn_layout)
 

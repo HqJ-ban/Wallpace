@@ -9,7 +9,16 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
-from PySide6.QtCore import Qt, QSize, Signal, Slot, QTimer
+from PySide6.QtCore import (
+    Qt,
+    QObject,
+    QRunnable,
+    QSize,
+    QThreadPool,
+    Signal,
+    Slot,
+    QTimer,
+)
 from PySide6.QtGui import QIcon, QPixmap
 from PySide6.QtWidgets import (
     QComboBox,
@@ -49,6 +58,42 @@ from src.app.icon import create_app_icon
 from src.app import image_loader
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Background library scan (QRunnable + QThreadPool)
+# ---------------------------------------------------------------------------
+
+
+class _ScanSignals(QObject):
+    """后台扫描完成信号的载体（随 MainWindow 生命周期）。"""
+
+    finished = Signal(list)  # list[str] — 扫描得到的图片路径
+
+
+class _ScanJob(QRunnable):
+    """后台扫描任务：只调用 ImageLibrary.scan() 纯数据操作，绝不触碰 QWidget。
+
+    扫描结果通过 Qt 信号以队列连接（QueuedConnection）回到主线程，
+    由 MainWindow._on_scan_finished 在主线程更新 UI。
+    """
+
+    def __init__(self, library: "ImageLibrary", signals: _ScanSignals) -> None:
+        super().__init__()
+        self._library = library
+        self._signals = signals
+
+    def run(self) -> None:
+        try:
+            images = self._library.scan()
+        except Exception:
+            logger.exception("后台扫描图片库失败")
+            images = []
+        try:
+            self._signals.finished.emit(images)
+        except RuntimeError:
+            # 信号载体已随窗口销毁，静默丢弃结果
+            pass
 
 
 # ---------------------------------------------------------------------------
@@ -140,6 +185,10 @@ class MainWindow(QMainWindow):
     SWITCH_REQUESTED = 1
     FAVORITE_REQUESTED = 2
 
+    # 缩略图懒加载参数：首批加载数量 + 距右端多少像素时预取下一批
+    GALLERY_THUMB_BATCH = 10
+    GALLERY_LOAD_AHEAD_PX = 240
+
     def __init__(
         self,
         settings: "Settings",
@@ -157,6 +206,19 @@ class MainWindow(QMainWindow):
 
         self._current_image_index = 0
         self._clock_timer: Optional["QTimer"] = None
+
+        # --- 异步扫描基础设施 ---
+        # 专用单线程池：保证任何时刻最多一个扫描任务，避免并发 scan。
+        self._scan_pool = QThreadPool(self)
+        self._scan_pool.setMaxThreadCount(1)
+        self._scan_signals = _ScanSignals(self)
+        self._scan_signals.finished.connect(self._on_scan_finished)
+        self._scan_running = False
+        self._scan_pending = False  # 扫描期间又有刷新请求时置位，完成后补一次
+
+        # --- 缩略图懒加载状态 ---
+        self._gallery_pending: list = []  # 尚未创建 widget 的图片路径
+        self._gallery_items: list = []    # 已加载（已创建 widget）的图片路径
 
         self._setup_window()
         self._setup_ui()
@@ -400,6 +462,12 @@ class MainWindow(QMainWindow):
         self._gallery_layout.setContentsMargins(0, 0, 0, 0)
         self._gallery_layout.setSpacing(8)
         self._gallery_scroll.setWidget(self._gallery_content)
+        # 懒加载：滚动接近右端（或内容区范围变化）时按需追加下一批缩略图
+        hbar = self._gallery_scroll.horizontalScrollBar()
+        hbar.valueChanged.connect(self._maybe_load_more_thumbnails)
+        hbar.rangeChanged.connect(
+            lambda _min, _max: self._maybe_load_more_thumbnails()
+        )
         gallery_layout.addWidget(self._gallery_scroll)
 
         layout.addWidget(gallery_section)
@@ -551,6 +619,7 @@ class MainWindow(QMainWindow):
         # --- 分组: 图片库 ---
         group_images = QFrame()
         group_images.setObjectName("settings_group")
+        self._group_images = group_images  # 扫描期间整体禁用
         group_layout = QVBoxLayout(group_images)
         group_layout.setContentsMargins(12, 12, 12, 12)
 
@@ -572,6 +641,7 @@ class MainWindow(QMainWindow):
         )
         btn_add.clicked.connect(self._add_directory)
         btn_row.addWidget(btn_add)
+        self._btn_add_dir = btn_add  # 扫描期间禁用
 
         btn_remove = QPushButton("移除文件夹")
         btn_remove.setStyleSheet(
@@ -580,6 +650,7 @@ class MainWindow(QMainWindow):
         )
         btn_remove.clicked.connect(self._remove_directory)
         btn_row.addWidget(btn_remove)
+        self._btn_remove_dir = btn_remove  # 扫描期间禁用
         btn_row.addStretch()
         group_layout.addLayout(btn_row)
 
@@ -660,6 +731,9 @@ class MainWindow(QMainWindow):
 
     def _add_directory(self) -> None:
         """打开文件夹选择对话框，添加到图片目录列表。"""
+        if self._scan_running:
+            # 扫描进行中禁止变更目录，避免扫描结果过期
+            return
         folder = QFileDialog.getExistingDirectory(
             self, "选择图片文件夹", ""
         )
@@ -668,8 +742,8 @@ class MainWindow(QMainWindow):
             if folder not in dirs:
                 dirs.append(folder)
                 self._settings.set("image_directories", dirs)
-            # 关键修复：真正把目录加入 ImageLibrary 内部列表，再扫描
-            if self._library.add_directory(folder):
+            # 关键修复：只将目录添加到 ImageLibrary，避免重复同步扫描。
+            if self._library.add_directory(folder, scan=False):
                 self._refresh_gallery()
                 self._update_settings_page_display()
                 logger.info("已添加图片目录: %s", folder)
@@ -678,6 +752,9 @@ class MainWindow(QMainWindow):
 
     def _on_mode_changed(self, text: str) -> None:
         """处理模式切换。"""
+        if self._scan_running:
+            # 扫描进行中模式选择器已被禁用，此分支仅是双保险
+            return
         mode_display_map = {
             "daily_random": "每日随机",
             "interval_minutes": "间隔时间",
@@ -735,12 +812,16 @@ class MainWindow(QMainWindow):
         if not hasattr(self, '_dirs_layout'):
             return
         # 清除旧的子 widget
+        # 注意：必须用 takeAt 先把 item 从布局中移除再 deleteLater。
+        # 只调用 deleteLater() 不会减少 layout.count()（删除事件要等事件循环
+        # 处理），旧写法会死循环并彻底卡死 UI（"未响应"的直接根因）。
         while self._dirs_layout.count():
-            widget = self._dirs_layout.itemAt(0).widget()
-            if widget:
+            item = self._dirs_layout.takeAt(0)
+            if item is None:
+                break
+            widget = item.widget()
+            if widget is not None:
                 widget.deleteLater()
-            else:
-                self._dirs_layout.removeItem(self._dirs_layout.itemAt(0))
 
         dirs = self._settings.get("image_directories", [])
         if not dirs:
@@ -804,19 +885,23 @@ class MainWindow(QMainWindow):
 
     def _remove_directory(self) -> None:
         """弹出选择框，让用户选择移除哪个文件夹。"""
+        if self._scan_running:
+            return
         dirs = self._settings.get("image_directories", [])
         if not dirs:
             return
         # 如果有多个目录，用简易方式：移除最后一个
         removed = dirs.pop()
         self._settings.set("image_directories", dirs)
-        self._library.remove_directory(removed)
+        self._library.remove_directory(removed, scan=False)
         self._refresh_gallery()
         self._update_settings_page_display()
         logger.info("已移除图片目录: %s", removed)
 
     def _remove_single_dir(self, path: str) -> None:
         """移除指定路径的图片目录。"""
+        if self._scan_running:
+            return
         from PySide6.QtWidgets import QMessageBox
         reply = QMessageBox.question(
             self, "确认删除",
@@ -829,7 +914,7 @@ class MainWindow(QMainWindow):
             if path in dirs:
                 dirs.remove(path)
                 self._settings.set("image_directories", dirs)
-                self._library.remove_directory(path)
+                self._library.remove_directory(path, scan=False)
                 self._refresh_gallery()
                 self._update_settings_page_display()
                 logger.info("已移除图片目录: %s", path)
@@ -883,11 +968,7 @@ class MainWindow(QMainWindow):
             # It was already in fav_set (idempotent), try unfavorite
             self._library.unfavorite(self._preview_card._current_path)
             logger.info("取消收藏: %s", self._preview_card._current_path)
-        # Update sidebar star icon
-        if hasattr(self, "_sidebar") and self._sidebar:
-            is_favorited = self._preview_card._current_path in self._library._favorite_set
-            if len(getattr(self._sidebar, "_action_buttons", [])) >= 3:
-                self._sidebar._action_buttons[2].set_active(is_favorited)
+        self._sync_sidebar_action_state()
 
     @Slot(str)
     def on_wallpaper_switched(self, path: str) -> None:
@@ -928,6 +1009,7 @@ class MainWindow(QMainWindow):
         file_name = Path(path).stem
         self._tray.setToolTip(f"Wallpace -- {file_name}")
 
+        self._sync_sidebar_action_state()
         self._update_info_cards()
 
     def _on_gallery_click(self, image_path: str) -> None:
@@ -945,8 +1027,40 @@ class MainWindow(QMainWindow):
             logger.exception("画廊点击处理失败")
 
     def _refresh_gallery(self) -> None:
-        """刷新扫描并更新 UI。"""
-        images = self._library.scan()
+        """刷新图片库：后台线程扫描，完成后回主线程更新 UI。
+
+        scan() 是同步递归 IO，在主线程执行会阻塞事件循环导致界面"未响应"。
+        这里只投递后台任务；UI 更新在 _on_scan_finished 中完成。
+        """
+        self._start_async_scan()
+
+    def _start_async_scan(self) -> None:
+        """投递一次后台扫描。扫描进行中再次调用时合并为一次补扫。"""
+        if self._scan_running:
+            # 防重入：不并发多个 scan，标记待补扫即可
+            self._scan_pending = True
+            return
+        self._scan_running = True
+        self._set_scan_ui_state(True)
+        self._scan_pool.start(_ScanJob(self._library, self._scan_signals))
+
+    @Slot(list)
+    def _on_scan_finished(self, images: list) -> None:
+        """扫描完成回调（主线程）。应用结果并恢复 UI 状态。"""
+        self._scan_running = False
+        try:
+            self._apply_scan_results(images)
+        except Exception:
+            logger.exception("应用扫描结果失败")
+        finally:
+            self._set_scan_ui_state(False)
+        if self._scan_pending:
+            # 扫描期间目录/设置有变更，补一次最新扫描
+            self._scan_pending = False
+            self._start_async_scan()
+
+    def _apply_scan_results(self, images: list) -> None:
+        """根据扫描结果更新预览、缩略图和状态栏（必须在主线程调用）。"""
         if images:
             first = images[0]
             self._update_preview(first, 0)
@@ -963,8 +1077,21 @@ class MainWindow(QMainWindow):
         self._update_info_cards()
         self.update_bottom_bar()
 
+    def _set_scan_ui_state(self, scanning: bool) -> None:
+        """扫描期间禁用会触发扫描的入口，并在状态栏显示提示。"""
+        for attr in ("_group_images", "_btn_add_dir", "_btn_remove_dir", "_mode_combo"):
+            widget = getattr(self, attr, None)
+            if widget is not None:
+                widget.setEnabled(not scanning)
+        label = getattr(self, "_bottom_notifier_label", None)
+        if label is not None:
+            if scanning:
+                label.setText("⏳ 正在扫描图片库…")
+            else:
+                self.update_bottom_bar()
+
     def _refresh_gallery_thumbnails(self) -> None:
-        """Populate gallery horizontal scroll with thumbnails."""
+        """重建缩略图区域：只立即加载首批，其余滚动到时懒加载。"""
         # Clear existing widgets
         for i in reversed(range(self._gallery_layout.count())):
             widget = self._gallery_layout.itemAt(i).widget()
@@ -974,17 +1101,48 @@ class MainWindow(QMainWindow):
                 widget.deleteLater()
 
         images = self._library.list_available()
-        current_path = getattr(self._preview_card, "_current_path", "")
-        for img_path in images[:20]:  # Show first 20
-            thumb = _GalleryThumbWidget(img_path, is_current=(img_path == current_path))
-            thumb.clicked.connect(lambda p=img_path: self._on_gallery_click(p))
-            self._gallery_layout.addWidget(thumb)
-
-        self._gallery_items = images[:20]  # track for highlight updates
+        self._gallery_pending = list(images)
+        self._gallery_items = []
+        self._gallery_scroll.horizontalScrollBar().setValue(0)
+        self._append_gallery_batch()  # 首批 GALLERY_THUMB_BATCH 张
 
         # Update bottom and top status bars
         self.update_bottom_bar()
         self.update_top_status()
+
+    def _append_gallery_batch(self) -> None:
+        """从待加载队列取一批图片创建缩略图 widget（主线程）。"""
+        batch = self._gallery_pending[: self.GALLERY_THUMB_BATCH]
+        del self._gallery_pending[: len(batch)]
+        if not batch:
+            return
+        current_path = getattr(self._preview_card, "_current_path", "")
+        for img_path in batch:
+            thumb = _GalleryThumbWidget(img_path, is_current=(img_path == current_path))
+            thumb.clicked.connect(lambda p=img_path: self._on_gallery_click(p))
+            self._gallery_layout.addWidget(thumb)
+        self._gallery_items.extend(batch)
+
+    @Slot()
+    def _maybe_load_more_thumbnails(self, *args) -> None:  # noqa: ANN002
+        """滚动接近右端时追加下一批缩略图（懒加载）。"""
+        if not getattr(self, "_gallery_pending", None):
+            return
+        hbar = self._gallery_scroll.horizontalScrollBar()
+        if hbar.maximum() - hbar.value() <= self.GALLERY_LOAD_AHEAD_PX:
+            self._append_gallery_batch()
+
+    def _sync_sidebar_action_state(self) -> None:
+        """同步侧边栏收藏按钮状态到当前预览图片。"""
+        if not hasattr(self, "_sidebar") or self._sidebar is None:
+            return
+        current_path = getattr(self._preview_card, "_current_path", "")
+        if not current_path:
+            return
+        is_favorited = self._library.is_favorite(current_path)
+        action_buttons = getattr(self._sidebar, "_action_buttons", [])
+        if len(action_buttons) >= 3:
+            action_buttons[2].set_active(is_favorited)
 
     def update_top_status(self) -> None:
         """Update the top bar status badge based on scheduler state."""

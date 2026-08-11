@@ -64,13 +64,15 @@ class ImageLibrary:
             if not root.is_dir():
                 logger.warning("跳过无效目录: %s", dir_str)
                 continue
-            # glob '**/*' 递归搜索
-            for ext in supported:
-                images.extend(str(p.resolve()) for p in root.glob(f"**/*.{ext}"))
+            for path in root.rglob("*"):
+                if not path.is_file():
+                    continue
+                if path.suffix.lstrip(".").lower() in supported:
+                    images.append(str(path.resolve()))
 
         # 去重 + 排序
-        seen: Set[str] = set()
         unique: List[str] = []
+        seen: Set[str] = set()
         for img in sorted(images):
             if img not in seen:
                 seen.add(img)
@@ -103,11 +105,12 @@ class ImageLibrary:
             return None
         return random.choice(available)
 
-    def add_directory(self, path: str) -> bool:
-        """动态添加扫描目录并重新扫描。
+    def add_directory(self, path: str, scan: bool = True) -> bool:
+        """动态添加扫描目录。
 
         Args:
             path: 文件夹路径。
+            scan: 是否立即重新扫描目录。
 
         Returns:
             True 表示目录有效且已添加。
@@ -119,22 +122,24 @@ class ImageLibrary:
         if path not in self._directories:
             self._directories.append(path)
             logger.info("添加图片目录: %s", path)
-        # 立即刷新
-        self.scan()
+        if scan:
+            self.scan()
         return True
 
-    def remove_directory(self, path: str) -> bool:
-        """移除扫描目录并重新扫描。
+    def remove_directory(self, path: str, scan: bool = True) -> bool:
+        """移除扫描目录。
 
         Args:
             path: 要移除的目录路径。
+            scan: 是否立即重新扫描目录。
 
         Returns:
             True 表示成功移除。
         """
         if path in self._directories:
             self._directories.remove(path)
-            self.scan()
+            if scan:
+                self.scan()
             logger.info("移除图片目录: %s", path)
             return True
         return False
@@ -191,6 +196,11 @@ class ImageLibrary:
         if added:
             logger.info("收藏: %s", key)
         return added
+
+    def is_favorite(self, image_path: str) -> bool:
+        """判断图片是否已经收藏。"""
+        resolved = Path(image_path).resolve()
+        return str(resolved) in self._favorite_set
 
     def unfavorite(self, image_path: str) -> bool:
         """取消收藏。
