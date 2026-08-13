@@ -17,8 +17,16 @@ sys.path.insert(0, str(ROOT))
 # 日志配置 — 使用用户 home 目录避免权限问题
 LOG_DIR = Path.home() / ".wallpace" / "logs"
 LOG_DIR.mkdir(parents=True, exist_ok=True)
+
+# 卡死时自动把主线程堆栈 dump 到日志，便于排查 UI 无响应类问题
+import faulthandler
+
+try:
+    faulthandler.enable(file=open(LOG_DIR / "traceback.log", "w"))
+except OSError:
+    pass
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=logging.DEBUG if "--debug" in sys.argv else logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     handlers=[
         logging.FileHandler(LOG_DIR / "wallpace.log", encoding="utf-8"),
@@ -63,6 +71,14 @@ def main() -> None:
     from src.core.wallpaper_manager import WallpaperManager
 
     settings = Settings()
+
+    # 日志级别按配置调整（--debug 命令行参数强制 DEBUG 优先）
+    _level_name = str(settings.get("log_level", "INFO")).upper()
+    _level = getattr(logging, _level_name, logging.INFO)
+    if "--debug" in sys.argv:
+        _level = logging.DEBUG
+    logging.getLogger().setLevel(_level)
+
     library = ImageLibrary(
         directories=settings.get("image_directories"),
         extensions=settings.get("extensions"),

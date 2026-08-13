@@ -43,12 +43,28 @@ if not hasattr(QMetaObject.Connection, "disconnect"):
 
 
 @pytest.fixture()
-def tmp_config_dir(tmp_path: Path):
-    """提供一个临时目录用于存放 .wallpace.json。"""
-    # 切换到临时目录避免影响真实配置
+def tmp_config_dir(tmp_path: Path, monkeypatch):
+    """提供一个隔离的临时配置目录。
+
+    默认配置位置已改为 %APPDATA%/.wallpace/config.json（与 CWD 无关），
+    因此必须把 DEFAULT_CONFIG_PATH 重定向到临时目录，否则用例会读写真实用户
+    配置；同时禁用旧配置路径检查，避免测试从项目根/真实 CWD 迁移真实数据。
+
+    注意：测试可能以 `src.core.settings` 或 `core.settings` 两种 import 风格
+    加载同一文件，二者在 sys.modules 中是不同模块对象，需一并重定向。
+    """
+    import os
+    import sys
+
+    for _mod_name in ("src.core.settings", "core.settings"):
+        _mod = sys.modules.get(_mod_name)
+        if _mod is None:
+            continue
+        monkeypatch.setattr(_mod, "DEFAULT_CONFIG_PATH", tmp_path / "config.json")
+        monkeypatch.setattr(_mod, "LEGACY_CONFIG_PATHS", [])
+
     old_cwd = Path.cwd()
     try:
-        import os
         os.chdir(str(tmp_path))
         yield tmp_path
     finally:

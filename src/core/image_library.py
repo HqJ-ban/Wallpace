@@ -219,6 +219,23 @@ class ImageLibrary:
             logger.info("取消收藏: %s", key)
         return removed
 
+    def load_persisted_state(self, skip_list: List[str], favorites: List[str]) -> None:
+        """从持久化配置载入跳过列表与收藏列表。
+
+        在应用启动时调用，把 Settings 中保存的 skip_list / favorites 还原到内存集合。
+        路径用 Path.resolve() 归一化，与 skip()/favorite() 的键保持一致。
+
+        Args:
+            skip_list: 跳过的图片绝对路径列表。
+            favorites: 收藏的图片绝对路径列表。
+        """
+        self._skip_set = {str(Path(p).resolve()) for p in skip_list if p}
+        self._favorite_set = {str(Path(p).resolve()) for p in favorites if p}
+        logger.info(
+            "已载入持久化状态: %d 跳过, %d 收藏",
+            len(self._skip_set), len(self._favorite_set),
+        )
+
     @property
     def skip_list(self) -> List[str]:
         """返回跳过列表的副本（可安全用于序列化）。"""

@@ -38,8 +38,8 @@ def app():
 
 
 @pytest.fixture
-def main_window(app):
-    """创建 MainWindow 实例。"""
+def main_window(app, tmp_config_dir):
+    """创建 MainWindow 实例（配置隔离到临时目录，避免污染真实数据）。"""
     from src.core.settings import Settings
     from src.core.image_library import ImageLibrary
     from src.core.wallpaper_manager import WallpaperManager

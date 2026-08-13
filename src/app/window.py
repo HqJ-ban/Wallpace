@@ -58,6 +58,8 @@ from src.app.widgets.preview_card import PreviewCardWidget
 from src.app.icon import create_app_icon
 from src.app import image_loader
 from src.core.autostart_registry import AutostartManager
+from src.app.pages.gallery_page import GalleryPage
+from src.app.pages.settings_page import SettingsPage
 
 logger = logging.getLogger(__name__)
 
@@ -204,6 +206,11 @@ class MainWindow(QMainWindow):
         self._settings = settings
         self._force_quit = False  # 是否强制退出（绕过最小化到托盘）
         self._library = library
+        # 从持久化配置还原 skip/favorites（避免重启后用户收藏/跳过丢失）
+        self._library.load_persisted_state(
+            self._settings.get("skip_list", []),
+            self._settings.get("favorites", []),
+        )
         self._wallpaper_manager = wallpaper_manager
         self._scheduler = scheduler
 
@@ -286,16 +293,16 @@ class MainWindow(QMainWindow):
         self._stacked.addWidget(self._preview_page)
 
         # ---- 页面 1: 图片库（占位） ----
-        gallery_placeholder = self._build_gallery_placeholder()
-        self._stacked.addWidget(gallery_placeholder)
+        self._gallery_page = self._build_gallery_page()
+        self._stacked.addWidget(self._gallery_page)
 
         # ---- 页面 2: 时钟（占位） ----
         clock_placeholder = self._build_clock_placeholder()
         self._stacked.addWidget(clock_placeholder)
 
         # ---- 页面 3: 设置面板 ----
-        settings_page = self._build_settings_page()
-        self._stacked.addWidget(settings_page)
+        self._settings_page = self._build_settings_page()
+        self._stacked.addWidget(self._settings_page)
 
         body_layout.addWidget(divider)
         body_layout.addWidget(self._stacked, stretch=1)
@@ -506,6 +513,17 @@ class MainWindow(QMainWindow):
 
         return card
 
+    def _build_gallery_page(self) -> QWidget:
+        """构建图片库页面：全部/收藏/已跳过 筛选 + 缩略图网格。"""
+        page = GalleryPage(
+            library=self._library,
+            image_loader=image_loader,
+            on_set_wallpaper=self._on_gallery_click,
+            on_persist=self._persist_skip_favorites,
+        )
+        self._gallery_page = page
+        return page
+
     def _build_gallery_placeholder(self) -> QWidget:
         page = QWidget()
         layout = QVBoxLayout(page)
@@ -609,154 +627,25 @@ class MainWindow(QMainWindow):
         return ""
 
     def _build_settings_page(self) -> QWidget:
-        """构建设置页面，包含文件夹添加和模式切换功能。"""
-        page = QWidget()
-        layout = QVBoxLayout(page)
-        layout.setContentsMargins(24, 16, 24, 16)
+        """构建设置页面：UI 交给 SettingsPage（视图层），业务逻辑回调回 MainWindow。
 
-        title = QLabel("设置")
-        title.setObjectName("title")
-        layout.addWidget(title)
-        layout.addSpacing(8)
-
-        # --- 分组: 图片库 ---
-        group_images = QFrame()
-        group_images.setObjectName("settings_group")
-        self._group_images = group_images  # 扫描期间整体禁用
-        group_layout = QVBoxLayout(group_images)
-        group_layout.setContentsMargins(12, 12, 12, 12)
-
-        dir_label = QLabel("图片文件夹")
-        dir_label.setObjectName("sub-title")
-        group_layout.addWidget(dir_label)
-
-        # 目录列表（每个目录显示路径 + 删除按钮）
-        self._dirs_layout = QVBoxLayout()
-        self._dirs_layout.setSpacing(4)
-        self._refresh_dir_list()
-        group_layout.addLayout(self._dirs_layout)
-
-        # 添加/删除按钮行
-        btn_row = QHBoxLayout()
-        btn_add = QPushButton("添加文件夹")
-        btn_add.setStyleSheet(
-            "QPushButton { padding: 6px 16px; border-radius: 6px; }"
-        )
-        btn_add.clicked.connect(self._add_directory)
-        btn_row.addWidget(btn_add)
-        self._btn_add_dir = btn_add  # 扫描期间禁用
-
-        btn_remove = QPushButton("移除文件夹")
-        btn_remove.setStyleSheet(
-            "QPushButton { padding: 6px 16px; border-radius: 6px; "
-            "color: #c62828; border: 1px solid #ffcdd2; }"
-        )
-        btn_remove.clicked.connect(self._remove_directory)
-        btn_row.addWidget(btn_remove)
-        self._btn_remove_dir = btn_remove  # 扫描期间禁用
-        btn_row.addStretch()
-        group_layout.addLayout(btn_row)
-
-        # 显示当前配置的图片目录数量
-        dirs = self._settings.get("image_directories", [])
-        self._dir_count_label = QLabel(f"共 {len(dirs)} 个目录")
-        self._dir_count_label.setStyleSheet("font-size: 11px; color: #9e9e9e; margin-top: 4px;")
-        group_layout.addWidget(self._dir_count_label)
-
-        layout.addWidget(group_images)
-        layout.addSpacing(16)
-
-        # --- 分组: 切换策略 ---
-        group_switch = QFrame()
-        group_switch.setObjectName("settings_group")
-        switch_layout = QVBoxLayout(group_switch)
-        switch_layout.setContentsMargins(12, 12, 12, 12)
-
-        mode_label = QLabel("切换模式")
-        mode_label.setObjectName("sub-title")
-        switch_layout.addWidget(mode_label)
-
-        # 模式选择器
-        self._mode_combo = QComboBox()
-        self._mode_combo.addItems(["每日随机", "间隔时间", "手动"])
-        current_mode = self._settings.get("switch_mode", "daily_random")
-        # 映射内部模式名到显示文本
-        mode_display_map = {
-            "daily_random": "每日随机",
-            "interval_minutes": "间隔时间",
-            "manual": "手动",
+        这样 window.py 仍保留对 AutostartManager / Scheduler 等的引用，
+        既完成了「拆分 window.py」的架构重构，又保持既有测试兼容。
+        """
+        callbacks = {
+            "on_autostart_toggle": self._on_autostart_toggled,
+            "on_minimize_toggle": self._on_minimize_toggled,
+            "on_mode_changed": self._on_mode_changed,
+            "on_add_directory": self._add_directory,
+            "on_remove_directory": self._remove_directory,
+            "on_apply_interval": self._apply_interval,
+            "on_remove_single_dir": self._remove_single_dir,
         }
-        display_text = mode_display_map.get(current_mode, "每日随机")
-        self._mode_combo.setCurrentText(display_text)
-        self._mode_combo.currentTextChanged.connect(self._on_mode_changed)
-        switch_layout.addWidget(self._mode_combo)
-
-        # 显示当前模式描述
-        self._mode_desc = QLabel("")
-        self._mode_desc.setStyleSheet("font-size: 12px; color: #424242; margin-top: 4px;")
-        self._update_mode_description(current_mode)
-        switch_layout.addWidget(self._mode_desc)
-
-        # 间隔时间输入框（仅间隔模式可见）
-        self._interval_group = QFrame()
-        interval_layout = QVBoxLayout(self._interval_group)
-        interval_layout.setContentsMargins(0, 4, 0, 0)
-        interval_label = QLabel("间隔时间（分钟）:")
-        interval_label.setStyleSheet("font-size: 12px;")
-        self._interval_input = QLineEdit()
-        self._interval_input.setPlaceholderText("例如：30")
-        self._interval_input.setMaximumWidth(100)
-        interval_layout.addWidget(interval_label)
-
-        interval_input_row = QHBoxLayout()
-        interval_input_row.addWidget(self._interval_input)
-        btn_apply_interval = QPushButton("应用")
-        btn_apply_interval.setFixedHeight(26)
-        btn_apply_interval.setStyleSheet(
-            "QPushButton { padding: 2px 12px; border-radius: 6px; "
-            "background-color: #5c6bc0; color: white; font-weight: 600; font-size: 12px; }"
-            "QPushButton:hover { background-color: #7986cb; }"
-        )
-        btn_apply_interval.clicked.connect(self._apply_interval)
-        interval_input_row.addWidget(btn_apply_interval)
-        interval_input_row.addStretch()
-        interval_layout.addLayout(interval_input_row)
-
-        self._interval_group.setVisible(False)
-        switch_layout.addWidget(self._interval_group)
-
-        layout.addWidget(group_switch)
-        layout.addSpacing(16)
-
-        # --- 分组: 通用 ---
-        group_general = QFrame()
-        group_general.setObjectName("settings_group")
-        general_layout = QVBoxLayout(group_general)
-        general_layout.setContentsMargins(12, 12, 12, 12)
-
-        general_title = QLabel("通用")
-        general_title.setObjectName("sub-title")
-        general_layout.addWidget(general_title)
-
-        # 开机自启
-        self._autostart_check = QCheckBox("开机自启")
-        self._autostart_check.setChecked(
-            bool(self._settings.get("auto_start", True))
-        )
-        self._autostart_check.toggled.connect(self._on_autostart_toggled)
-        general_layout.addWidget(self._autostart_check)
-
-        # 关闭窗口时最小化到托盘
-        self._minimize_check = QCheckBox("关闭窗口时最小化到托盘")
-        self._minimize_check.setChecked(
-            bool(self._settings.get("minimize_to_tray", True))
-        )
-        self._minimize_check.toggled.connect(self._on_minimize_toggled)
-        general_layout.addWidget(self._minimize_check)
-
-        layout.addWidget(group_general)
-        layout.addStretch()
-
+        page = SettingsPage(settings=self._settings, callbacks=callbacks)
+        self._settings_page = page
+        # 暴露复选框引用，保持既有测试/外部调用兼容
+        self._autostart_check = page.autostart_check
+        self._minimize_check = page.minimize_check
         return page
 
     # ===== 设置页面的辅助方法 =====
@@ -791,7 +680,7 @@ class MainWindow(QMainWindow):
             # 关键修复：只将目录添加到 ImageLibrary，避免重复同步扫描。
             if self._library.add_directory(folder, scan=False):
                 self._refresh_gallery()
-                self._update_settings_page_display()
+                self._settings_page.refresh()
                 logger.info("已添加图片目录: %s", folder)
             else:
                 logger.warning("添加图片目录失败（目录无效）: %s", folder)
@@ -818,13 +707,13 @@ class MainWindow(QMainWindow):
             if interval_val is None or interval_val <= 0:
                 interval_val = 60
             # 将已有的间隔值显示到输入框
-            self._interval_input.setText(str(interval_val))
+            self._settings_page.set_interval_value(interval_val)
             # 如果调度器存在但 interval 值不同，更新调度器的间隔值
             if self._scheduler and self._scheduler._interval_minutes != interval_val:
                 self._scheduler._interval_minutes = interval_val
-            self._interval_group.setVisible(True)
+            self._settings_page.set_interval_visible(True)
         else:
-            self._interval_group.setVisible(False)
+            self._settings_page.set_interval_visible(False)
 
         # 管理调度器
         if self._scheduler is not None:
@@ -834,80 +723,13 @@ class MainWindow(QMainWindow):
             if internal_mode != "manual" and not self._scheduler.is_running:
                 self._scheduler.start(on_switch=self.on_wallpaper_switched)
 
-        self._update_mode_description(internal_mode)
-        self._update_settings_page_display()
-
-    def _update_mode_description(self, mode: str) -> None:
-        """更新模式描述标签的文字。"""
-        descriptions = {
-            "daily_random": "每天指定时间随机切换一张壁纸",
-            "interval_minutes": "每隔设定的时间自动切换",
-            "manual": "只响应手动切换操作，无自动切换",
-        }
-        self._mode_desc.setText(descriptions.get(mode, ""))
-
-    def _update_settings_page_display(self) -> None:
-        """更新设置页面中显示的目录计数等信息。"""
-        dirs = self._settings.get("image_directories", [])
-        if hasattr(self, '_dir_count_label'):
-            self._dir_count_label.setText(f"共 {len(dirs)} 个目录")
-        self._refresh_dir_list()
-
-    def _refresh_dir_list(self) -> None:
-        """刷新设置页面的目录列表显示。"""
-        if not hasattr(self, '_dirs_layout'):
-            return
-        # 清除旧的子 widget
-        # 注意：必须用 takeAt 先把 item 从布局中移除再 deleteLater。
-        # 只调用 deleteLater() 不会减少 layout.count()（删除事件要等事件循环
-        # 处理），旧写法会死循环并彻底卡死 UI（"未响应"的直接根因）。
-        while self._dirs_layout.count():
-            item = self._dirs_layout.takeAt(0)
-            if item is None:
-                break
-            widget = item.widget()
-            if widget is not None:
-                widget.deleteLater()
-
-        dirs = self._settings.get("image_directories", [])
-        if not dirs:
-            empty_label = QLabel("未配置图片文件夹，请点击「添加文件夹」")
-            empty_label.setStyleSheet(
-                f"background-color: {COLOR_GRAY_100}; "
-                "border-radius: 6px; padding: 8px; font-size: 12px; color: #9e9e9e;"
-            )
-            self._dirs_layout.addWidget(empty_label)
-            return
-
-        for i, d in enumerate(dirs):
-            row = QHBoxLayout()
-            path_label = QLabel(f"  {d}")
-            path_label.setWordWrap(True)
-            path_label.setStyleSheet(
-                f"background-color: {COLOR_GRAY_100}; "
-                "border-radius: 6px; padding: 6px 8px; font-size: 12px;"
-            )
-            path_label.setProperty("dir_index", i)
-            row.addWidget(path_label, stretch=1)
-
-            remove_btn = QPushButton("✕")
-            remove_btn.setFixedSize(24, 24)
-            remove_btn.setStyleSheet(
-                "QPushButton { border: none; border-radius: 12px; "
-                "background-color: #ffcdd2; color: #c62828; font-weight: bold; }"
-                "QPushButton:hover { background-color: #ef9a9a; }"
-            )
-            remove_btn.clicked.connect(lambda checked, p=d: self._remove_single_dir(p))
-            row.addWidget(remove_btn)
-
-            frame = QFrame()
-            frame.setLayout(row)
-            self._dirs_layout.addWidget(frame)
+        self._settings_page.update_mode_description(internal_mode)
+        self._settings_page.refresh()
 
     def _apply_interval(self) -> None:
         """应用间隔时间设置。"""
         try:
-            interval_val_str = self._interval_input.text().strip()
+            interval_val_str = self._settings_page.get_interval_text()
             if not interval_val_str:
                 logger.warning("请输入间隔时间")
                 return
@@ -941,7 +763,7 @@ class MainWindow(QMainWindow):
         self._settings.set("image_directories", dirs)
         self._library.remove_directory(removed, scan=False)
         self._refresh_gallery()
-        self._update_settings_page_display()
+        self._settings_page.refresh()
         logger.info("已移除图片目录: %s", removed)
 
     def _remove_single_dir(self, path: str) -> None:
@@ -962,7 +784,7 @@ class MainWindow(QMainWindow):
                 self._settings.set("image_directories", dirs)
                 self._library.remove_directory(path, scan=False)
                 self._refresh_gallery()
-                self._update_settings_page_display()
+                self._settings_page.refresh()
                 logger.info("已移除图片目录: %s", path)
 
     # ===== 业务操作 =====
@@ -987,12 +809,20 @@ class MainWindow(QMainWindow):
         else:
             logger.error("壁纸设置失败: %s", image_path)
 
+    def _persist_skip_favorites(self) -> None:
+        """将当前 skip/favorites 集合批量写回配置（单次保存）。"""
+        self._settings.set_many({
+            "skip_list": self._library.skip_list,
+            "favorites": self._library.favorites,
+        })
+
     def _handle_skip(self) -> None:
         """处理用户点击'跳过'。"""
         if not self._preview_card._current_path:
             return
         self._library.skip(self._preview_card._current_path)
         logger.info("已跳过: %s", self._preview_card._current_path)
+        self._persist_skip_favorites()
 
 
 
@@ -1014,6 +844,10 @@ class MainWindow(QMainWindow):
             # It was already in fav_set (idempotent), try unfavorite
             self._library.unfavorite(self._preview_card._current_path)
             logger.info("取消收藏: %s", self._preview_card._current_path)
+        self._persist_skip_favorites()
+        gallery = getattr(self, "_gallery_page", None)
+        if gallery is not None:
+            gallery.refresh()
         self._sync_sidebar_action_state()
 
     @Slot(str)
@@ -1112,6 +946,10 @@ class MainWindow(QMainWindow):
             self._update_preview(first, 0)
             logger.info("刷新图片库: %d 张", len(images))
             self._refresh_gallery_thumbnails()
+            # 同步左侧「图片库」整页（含收藏/已跳过筛选），避免扫描后页面不刷新
+            gallery = getattr(self, "_gallery_page", None)
+            if gallery is not None:
+                gallery.refresh()
             if hasattr(self, "_empty_guide"):
                 self._empty_guide.setVisible(False)
                 self._preview_card.setVisible(True)
@@ -1125,10 +963,8 @@ class MainWindow(QMainWindow):
 
     def _set_scan_ui_state(self, scanning: bool) -> None:
         """扫描期间禁用会触发扫描的入口，并在状态栏显示提示。"""
-        for attr in ("_group_images", "_btn_add_dir", "_btn_remove_dir", "_mode_combo"):
-            widget = getattr(self, attr, None)
-            if widget is not None:
-                widget.setEnabled(not scanning)
+        # 设置页控件在扫描期间整体禁用（控件现归属于 SettingsPage）
+        self._settings_page.set_controls_enabled(not scanning)
         label = getattr(self, "_bottom_notifier_label", None)
         if label is not None:
             if scanning:
